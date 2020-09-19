@@ -1,0 +1,47 @@
+version: "2"
+
+networks:
+    macvlan:
+        driver: macvlan
+        driver_opts:
+            parent: ${INTERFACE}
+        ipam:
+            config:
+                - subnet: ${SUBNET}
+                  gateway: ${GATEWAY}
+                  ip_range: ${IP_RANGE}
+  
+services:
+    pihole:
+        container_name: ${PIHOLE_HOSTNAME}
+        image: pihole/pihole:latest
+        ports:
+            - 53:53/tcp
+            - 53:53/udp
+            - 67:67/udp
+            - 80:80/tcp
+            - 443:443/tcp
+        environment:
+            DNSMASQ_LISTENING: all
+            TZ: ${TIMEZONE}
+            WEBPASSWORD: ${WEBPASSWORD}
+            VIRTUAL_HOST: ${DOMAIN_NAME}
+            DNS1: ${DNS1}
+            DNS2: ${DNS2}
+            ServerIP: ${PIHOLE_IP}
+        volumes:
+            # Keep data between container upgrades
+            - ${DATA_PATH}/pihole/:/etc/pihole/
+            - ${DATA_PATH}/dnsmasq.d/:/etc/dnsmasq.d/
+            # Synchronize with host clock
+            - /etc/localtime:/etc/localtime:ro
+        restart: unless-stopped
+        networks:
+            macvlan:
+                ipv4_address: ${PIHOLE_IP}
+        mac_address: ${MAC_ADDRESS}
+        hostname: ${PIHOLE_HOSTNAME}
+        domainname: ${DOMAIN_NAME}
+        dns: 
+            - 127.0.0.1
+            - ${DNS1}

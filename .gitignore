@@ -1,0 +1,14 @@
+# dotenv environment variables file
+.env
+
+# gren configuration
+.grenrc.yml
+
+# Mounts for Pi-hole
+/data
+
+# generated Docker Compose file
+docker-compose.yml
+
+# Local filesystem files
+.DS_Store
