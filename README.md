@@ -166,6 +166,7 @@ The Pi-hole [FAQ][pihole_dns] describes various options on how to configure Pi-h
 * xirixiz - [Setup Pi-hole on a virtual LAN][gist_xirixiz]
 * Tony Lawrence - [Free your Synology ports for Docker][article_tonylawrence]
 * Lars Kellogg-Stedman - [Using Docker macvlan networks][article_oddbit]
+* Steven Welsh - [Pi-hole on Synology NAS (Docker Version)][article_beefyfish]
 
 ## Donate
 <a href="https://www.buymeacoffee.com/markdumay" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/lato-orange.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important;"></a>
@@ -190,6 +191,7 @@ Copyright © [Mark Dumay][blog]
 [gist_xirixiz]: https://gist.github.com/xirixiz/ecad37bac9a07c2a1204ab4f9a17db3c
 [article_tonylawrence]: https://tonylawrence.com/posts/unix/synology/free-your-synology-ports/
 [article_oddbit]: https://blog.oddbit.com/post/2018-03-12-using-docker-macvlan-networks/
+[article_beefyfish]: https://discourse.pi-hole.net/t/setup-on-synology-docker/18067/4
 
 [timezone_list]: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
 [mac_test]: http://sqa.fyicenter.com/1000208_MAC_Address_Validator
