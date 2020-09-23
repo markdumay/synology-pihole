@@ -163,10 +163,10 @@ The Pi-hole [FAQ][pihole_dns] describes various options on how to configure Pi-h
 
 ## Credits
 *Synology-pihole* is inspired by the following code repositories and blog articles:
-* xirixiz - [Setup Pi-hole on a virtual LAN][gist_xirixiz]
+* Bram van Dartel (xirixiz) - [Setup Pi-hole on a virtual LAN][gist_xirixiz]
 * Tony Lawrence - [Free your Synology ports for Docker][article_tonylawrence]
 * Lars Kellogg-Stedman - [Using Docker macvlan networks][article_oddbit]
-* Steven Welsh - [Pi-hole on Synology NAS (Docker Version)][article_beefyfish]
+* Steven Welsh (beefyfish) - [Pi-hole on Synology NAS (Docker Version)][article_beefyfish]
 
 ## Donate
 <a href="https://www.buymeacoffee.com/markdumay" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/lato-orange.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important;"></a>
