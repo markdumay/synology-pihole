@@ -36,6 +36,7 @@ NW_TIMEOUT=600 # timeout to wait for network response (in seconds)
 #======================================================================================================================
 PARAM_PIHOLE_IP=''
 PARAM_SUBNET=''
+PARAM_HOST_IP=''
 PARAM_GATEWAY=''
 PARAM_IP_RANGE=''
 PARAM_VLAN_NAME=''
@@ -49,8 +50,6 @@ PARAM_DNS2=''
 PARAM_DATA_PATH=''
 PARAM_WEBPASSWORD=''
 PARAM_LOG_FILE=''
-INFO_NETWORK_IP=''
-INFO_BROADCAST_IP=''
 FORCE='false'
 LOG_PREFIX=''
 COMMAND=''
@@ -76,29 +75,37 @@ usage() {
     echo "Usage: $0 [OPTIONS] COMMAND" 
     echo
     echo "Options:"
-    echo "  -f, --force            Force update (bypass compatibility check and confirmation check)"
-    echo "  -l, --log [LOG FILE]   Display messages in log format, adding to [LOG FILE] if provided"
+    echo "  -f, --force            Force update (bypass compatibility check and confirmation check)."
+    echo "  -l, --log [LOG FILE]   Display messages in log format, adding to [LOG FILE] if provided."
     echo
     echo "Commands:"
-    echo "  install [PARAMETERS]   Install Pi-hole"
-    echo "  network                Create or recreate virtual network"
-    echo "  update                 Update Pi-hole to latest version using existing settings"
+    echo "  install (-i|--ip) <address> [PARAMETERS]   Install Pi-hole."
+    echo "  network (-i|--ip) <address> [PARAMETERS]   Create or recreate virtual network."
+    echo "  update                                     Update Pi-hole to latest version using "
+    echo "                                             existing settings."
     echo
-    echo "Installation parameters:"
-    echo "  -i, --ip               Static IP address of Pi-hole (required)"
-    echo "  -s, --subnet           Subnet of the virtual network"
-    echo "  -g, --gateway          Gateway of the virtual network"
-    echo "  -r, --range            IP range with CIDR notation of the virtual network"
-    echo "  -v, --vlan             Name of the virtual network"
-    echo "  -n, --interface        Physical interface of the virtual network"
-    echo "  -m, --mac              Unicast MAC address"
-    echo "  -d, --domain           Fully qualified domain name"
-    echo "  -H, --host             Hostname of Pi-hole"
-    echo "  -t, --timezone         Timezone for Pi-hole"
-    echo "      --DNS1             Primary DNS provider"
-    echo "      --DNS2             Alternative DNS provider"
-    echo "      --path             Path where to store Pi-hole data"
-    echo "  -p, --password         Password for the Pi-hole admin"
+    echo "Parameters:"
+    echo "  -d, --domain           Container fully qualified domain name."
+    echo "      --DNS1             Primary DNS provider."
+    echo "      --DNS2             Alternative DNS provider."
+    echo "  -g, --gateway          Gateway of the LAN."
+    echo "  -h, --help             Print this usage guide and exit."
+    echo "  -H, --host             Hostname of Pi-hole."
+    echo "      --host-ip          Host IP address to communicate with Pi-hole container. Defaults"
+    echo "                         to the lowest address not the Pi-hole address (i) starting at"
+    echo "                         the first address of range (r). It's recommended to set this to"
+    echo "                         avoid possible collisions."
+    echo "  -i, --ip               (Required) static IP address of Pi-hole."
+    echo "  -m, --mac              Pi-hole container unicast MAC address"
+    echo "  -n, --interface        Physical interface to bind docker network to."
+    echo "  -p, --password         Password for the Pi-hole admin."
+    echo "      --path             Path where to store Pi-hole data."
+    echo "  -r, --range            IP range (CIDR notation) from local subnet. Designates the pool"
+    echo "                         of addresses reserved for containers attached to the generated"
+    echo "                         docker macvlan network. Range should not overlap LAN DHCP pool."
+    echo "  -s, --subnet           The LAN subnet to interface with."
+    echo "  -t, --timezone         Timezone for Pi-hole."
+    echo "  -v, --vlan             Name of the generated macvlan docker network."
     echo
 }
 
@@ -163,9 +170,9 @@ is_valid_ip() {
 }
 
 # Returns 0 (successful) if an IPv4 address and routing suffix (CIDR format) comply with expected format
-is_valid_cidr_network() {
+is_valid_cidr() {
     local CIDR_REGEX='(((25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?))'
-    CIDR_REGEX+='(\/([8-9]|[1-2][0-9]|3[0-2]))([^0-9.]|$)'
+    CIDR_REGEX+='(\/([8-9]|[1-2][0-9]|3[0-2]))$'
     [[ $1 =~ ^$CIDR_REGEX$ ]] && return 0 || return 1
 }
 
@@ -178,26 +185,61 @@ is_valid_mac_address() {
 
 # Converts an IP address ($1) to an integer
 function convert_ip_to_int() {
-    local IFS_BACKUP="$IFS"
-    IFS=. read -r a b c d <<< "$1"
+    local IFS_BACKUP="$IFS" a b c d ip=$@
+    IFS=. read -r a b c d <<< "$ip"
     echo "$((a * 256 ** 3 + b * 256 ** 2 + c * 256 + d))"
     IFS="$IFS_BACKUP"
+}
+# Converts a decimal integer to a dotted IPv4 address
+# https://stackoverflow.com/questions/10768160/ip-address-converter
+function convert_int_to_ip() {
+    local ip dec=$@
+    for e in {3..0}
+    do
+        ((octet = dec / (256 ** e) ))
+        ((dec -= octet * 256 ** e))
+        ip+=$delim$octet
+        delim=.
+    done
+    echo "$ip"
 }
 
 # Returns 0 if an IP address ($1) is in available CIDR range ($2), returns 1 otherwise
 # Assumes IP address and CIDR range are valid parameters
-# Note: the network address and broadcast address are considered unavailable
 function is_ip_in_range() {
-    local IP=($1)
-    local IP_CIDR=($2)
+    local IP="$1"
+    local IP_CIDR="$2"
 
     local IP_INT=$(convert_ip_to_int "$IP")
-    local HOSTMIN=$(ipcalc -n "$IP_CIDR" | cut -f2 -d=)  # network address is start of the range
-    local HOSTMAX=$(ipcalc -b "$IP_CIDR" | cut -f2 -d=)  # broadcast address is end of the range
-    local HOSTMIN_INT=$(convert_ip_to_int "$HOSTMIN")
-    local HOSTMAX_INT=$(convert_ip_to_int "$HOSTMAX")
+    local CIDR_MIN_IP=$(ipcalc -n "$IP_CIDR" | cut -f2 -d=)  # network address is start of the range
+    local CIDR_MAX_IP=$(ipcalc -b "$IP_CIDR" | cut -f2 -d=)  # broadcast address is end of the range
+    local CIDR_MIN_IP_INT=$(convert_ip_to_int "$CIDR_MIN_IP")
+    local CIDR_MAX_IP_INT=$(convert_ip_to_int "$CIDR_MAX_IP")
 
-    [ "$IP_INT" -gt "$HOSTMIN_INT" ] && [ "$IP_INT" -lt "$HOSTMAX_INT" ] && return 0 || return 1
+    [ "$IP_INT" -ge "$CIDR_MIN_IP_INT" ] && [ "$IP_INT" -le "$CIDR_MAX_IP_INT" ] && return 0 || return 1
+}
+
+# Returns 0 if CIDR range is a valid unicast address range of the subnet, returns 1 otherwise
+# Assumes both arguments are are valid CIDR values
+function is_cidr_in_subnet() {
+    local RANGE_CIDR="$1"
+    local SUBNET_CIDR="$2"
+    local RANGE_PREFIX_SIZE=$(echo "$RANGE_CIDR" | cut -d/ -f2)
+    local SUBNET_PREFIX_SIZE=$(echo "$SUBNET_CIDR" | cut -d/ -f2)
+
+    # range prefix must be bigger than local subnets
+    [ $RANGE_PREFIX_SIZE -le $SUBNET_PREFIX_SIZE ] && return 1
+
+    # local broadcast address conflict?
+    local SUBNET_BCAST=$(ipcalc -b "$SUBNET_CIDR" | cut -f2 -d=)
+    local SUBNET_BCAST_INT=$(convert_ip_to_int "$SUBNET_BCAST_INT")
+    is_ip_in_range "$SUBNET_BCAST" "$RANGE_CIDR"
+    [ $? == 0 ] && return 1
+
+    # if a single range address is in the subnet then range is contained
+    local RANGE_IP=$(echo "$RANGE_CIDR" | cut -d/ -f1)
+    is_ip_in_range "$RANGE_IP" "$SUBNET_CIDR"
+    [ $? == 0 ] && return 0 || return 1
 }
 
 # Detects available versions for Pi-hole
@@ -234,6 +276,7 @@ init_env() {
     [ -z "$PARAM_SUBNET" ] && PARAM_SUBNET=${SUBNET}
     [ -z "$PARAM_GATEWAY" ] && PARAM_GATEWAY=${GATEWAY}
     [ -z "$PARAM_IP_RANGE" ] && PARAM_IP_RANGE=${IP_RANGE}
+    [ -z "$PARAM_HOST_IP" ] && PARAM_HOST_IP=${HOST_IP}
     [ -z "$PARAM_INTERFACE" ] && PARAM_INTERFACE=${INTERFACE}
     [ -z "$PARAM_MAC_ADDRESS" ] && PARAM_MAC_ADDRESS=${MAC_ADDRESS}
     [ -z "$PARAM_TIMEZONE" ] && PARAM_TIMEZONE=${TIMEZONE}
@@ -248,8 +291,8 @@ init_env() {
 init_auto_detected_values() {
     # add auto-detected settings for omitted parameters
     if [ -z "$PARAM_SUBNET" ] ; then
-        HOST_IP=$(ip route list | grep "default" | awk '{print $7}')
-        PARAM_SUBNET=$(ip route list | grep "proto" | grep "$HOST_IP" | awk '{print $1}')
+        DEFAULT_HOST_IP=$(ip route list | grep "default" | awk '{print $7}')
+        PARAM_SUBNET=$(ip route list | grep "proto" | grep "$DEFAULT_HOST_IP" | awk '{print $1}')
     fi
 
     if [ -z "$PARAM_GATEWAY" ] ; then
@@ -257,10 +300,8 @@ init_auto_detected_values() {
     fi
     
     if [ -z "$PARAM_IP_RANGE" ] && [ ! -z "$PARAM_PIHOLE_IP" ] ; then
-        # Find network address for minimum range containing Pi-hole IP (4 addresses)
-        # Note: the network address or broadcast address might clash with the Pi-hole IP (validate with is_ip_in_range)
-        local HOSTMIN=$(ipcalc -n "$PARAM_PIHOLE_IP/30" | cut -f2 -d=)  # network address is start of the range
-        PARAM_IP_RANGE="$HOSTMIN/30"
+        # Reserve minimal range
+        PARAM_IP_RANGE="$PARAM_PIHOLE_IP/32"
     fi
 
     if [ -z "$PARAM_INTERFACE" ] ; then
@@ -277,12 +318,20 @@ init_auto_detected_values() {
         PARAM_TIMEZONE=$(find /usr/share/zoneinfo/ -type f -exec sh -c "diff -q /etc/localtime '{}' \
             > /dev/null && echo {}" \; | sed 's|/usr/share/zoneinfo/||g')
     fi
+}
 
-    # initialize informational parameters
-    is_valid_cidr_network "$PARAM_IP_RANGE"
-    if [ $? == 0 ] ; then
-        INFO_NETWORK_IP=$(ipcalc -n "$PARAM_IP_RANGE" | cut -f2 -d=)  # network address of the range
-        INFO_BROADCAST_IP=$(ipcalc -b "$PARAM_IP_RANGE" | cut -f2 -d=)  # broadcast address of the range
+# generate any required omitted parameters
+init_generated_values() {
+    # host macvlan bridge ip
+    if [ -z "$PARAM_HOST_IP" ] ; then
+        local ip=$(ipcalc -n "$PARAM_IP_RANGE" | cut -f2 -d=)
+        local ip_int=$(convert_ip_to_int "$ip")
+        local ph_int=$(convert_ip_to_int "$PARAM_PIHOLE_IP")
+
+        if [ $ip_int == $ph_int ] ; then
+            $((ip_int++))
+        fi
+        PARAM_HOST_IP=$(convert_int_to_ip "$ip_int")
     fi
 }
 
@@ -299,27 +348,46 @@ safe_replace_in_file() {
 # Validate parameter settings
 validate_settings() {
     local INVALID_SETTINGS=""
+    local WARNING_SETTINGS=""
 
-    # validate mandatory parameters conform to expected value
-    is_valid_ip "$PARAM_PIHOLE_IP"
-    [ $? == 1 ] && terminate "No valid IP address provided"
-
+    #
     # validate parameters conform to expected value
-    is_valid_ip "$PARAM_PIHOLE_IP"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid Pi-hole IP:   ${PARAM_PIHOLE_IP}\n"
+    #
 
-    is_valid_cidr_network "$PARAM_SUBNET"
+    # -- IP parameters --
+    # Check the subnet first, this is the (L3) network we intend to interface with.
+
+    is_valid_cidr "$PARAM_SUBNET"
     [ $? == 1 ] && INVALID_SETTINGS+="Invalid subnet:       ${PARAM_SUBNET}\n"
 
     is_valid_ip "$PARAM_GATEWAY"
     [ $? == 1 ] && INVALID_SETTINGS+="Invalid gateway:      ${PARAM_GATEWAY}\n"
+    is_cidr_in_subnet "$PARAM_GATEWAY/32" "$PARAM_SUBNET"
+    [ $? == 1 ] && INVALID_SETTINGS+="Gateway address '$PARAM_GATEWAY' is not in subnet: '$PARAM_SUBNET'\n"
 
-    is_valid_cidr_network "$PARAM_IP_RANGE"
+    # A valid docker network range should be contained by the local subnet.
+    # The IP range designates a pool of IP addresses that docker allocates (by default) to containers
+    # attached to the docker network.
+    # This script defines Pi-hole a static IP address and only requires it be valid in the subnet,
+    # the user is free to pass their own valid address outside the range.
+    is_valid_ip "$PARAM_PIHOLE_IP"
+    [ $? == 1 ] && INVALID_SETTINGS+="Invalid Pi-hole IP:   ${PARAM_PIHOLE_IP}\n"
+    is_cidr_in_subnet "$PARAM_PIHOLE_IP/32" "$PARAM_SUBNET"
+    [ $? == 1 ] && INVALID_SETTINGS+="Pi-hole IP address '$PARAM_PIHOLE_IP' is not valid in subnet '$PARAM_SUBNET\n"
+
+    is_valid_ip "$PARAM_HOST_IP"
+    [ $? == 1 ] && INVALID_SETTINGS+="Invalid Host IP:   ${PARAM_HOST_IP}\n"
+    is_cidr_in_subnet "$PARAM_HOST_IP/32" "$PARAM_SUBNET"
+    [ $? == 1 ] && INVALID_SETTINGS+="Host IP address '$PARAM_HOST_IP' is not valid in subnet '$PARAM_SUBNET\n"
+
+    is_valid_cidr "$PARAM_IP_RANGE"
     [ $? == 1 ] && INVALID_SETTINGS+="Invalid IP range:     ${PARAM_IP_RANGE}\n"
+    is_cidr_in_subnet "$PARAM_IP_RANGE" "$PARAM_SUBNET"
+    [ $? == 1 ] && INVALID_SETTINGS+="Docker network IP address range is not in subnet '$PARAM_SUBNET'\n"
 
     is_ip_in_range "$PARAM_PIHOLE_IP" "$PARAM_IP_RANGE"
-    [ $? == 1 ] && INVALID_SETTINGS+="IP '$PARAM_PIHOLE_IP' not available in range '$PARAM_IP_RANGE'\n"
-
+    [ $? == 1 ] && WARNING_SETTINGS+="IP '$PARAM_PIHOLE_IP' not in docker network range '$PARAM_IP_RANGE'\n"
+    
     is_valid_mac_address "$PARAM_MAC_ADDRESS"
     [ $? == 1 ] && INVALID_SETTINGS+="Invalid MAC address:  ${PARAM_MAC_ADDRESS}\n"
 
@@ -335,6 +403,8 @@ validate_settings() {
     if [ "$INVALID_SETTINGS" ] ; then
         log "$INVALID_SETTINGS"
         terminate "Invalid parameters"
+    elif [ "$WARNING_SETTINGS" ] ; then
+        log "$WARNING_SETTINGS"
     fi
 }
 
@@ -412,23 +482,23 @@ define_pihole_versions() {
 init_settings() {
     print_status "Initializing network and Pi-hole settings"
     init_auto_detected_values
+    init_generated_values
     validate_settings
 
-    log "Pi-hole IP:   $PARAM_PIHOLE_IP"
-    log "Subnet:       $PARAM_SUBNET"
-    log "Gateway:      $PARAM_GATEWAY"
-    log "IP range:     $PARAM_IP_RANGE"
-    log "Network IP:   $INFO_NETWORK_IP"
-    log "Broadcast IP: $INFO_BROADCAST_IP"
-    log "VLAN:         $PARAM_VLAN_NAME"
-    log "Interface:    $PARAM_INTERFACE"
-    log "MAC address:  $PARAM_MAC_ADDRESS"
-    log "Domain name:  $PARAM_DOMAIN_NAME"
-    log "Hostname:     $PARAM_PIHOLE_HOSTNAME"
-    log "Timezone:     $PARAM_TIMEZONE"
-    log "DNS1:         $PARAM_DNS1"
-    log "DNS2:         $PARAM_DNS2"
-    log "Data path:    $PARAM_DATA_PATH"
+    log "Interface:                 $PARAM_INTERFACE"
+    log "Subnet:                    $PARAM_SUBNET"
+    log "Gateway:                   $PARAM_GATEWAY"
+    log "Host IP address:           $PARAM_HOST_IP"
+    log "VLAN:                      $PARAM_VLAN_NAME"
+    log "Pi-hole MAC address:       $PARAM_MAC_ADDRESS"
+    log "Pi-hole IP address:        $PARAM_PIHOLE_IP"
+    log "Docker network IP range:   $PARAM_IP_RANGE"
+    log "Domain name:               $PARAM_DOMAIN_NAME"
+    log "Hostname:                  $PARAM_PIHOLE_HOSTNAME"
+    log "Timezone:                  $PARAM_TIMEZONE"
+    log "DNS1:                      $PARAM_DNS1"
+    log "DNS2:                      $PARAM_DNS2"
+    log "Data path:                 $PARAM_DATA_PATH"
     if [ -z "$PARAM_WEBPASSWORD" ] ; then 
         log "Web password: (not set)"
     else
@@ -558,28 +628,28 @@ execute_wait_for_network() {
 
 # Create macvlan interface
 execute_create_macvlan() {
-    print_status "Creating network interface"
+    print_status "Creating interface to bridge host and docker network"
 
-    local STATUS
+    local STATUS=""
 
-    # (re-)create macvlan bridge network attached to the physical interface
+    # (re-)create macvlan bridge attached to the network interface
     STATUS=$(ip link | grep "$PARAM_VLAN_NAME")
-    if [ "$STATUS" ] ; then
+    if [ -z "$STATUS" ] ; then
         log "Removing existing link '$PARAM_VLAN_NAME'"
         ip link set "$PARAM_VLAN_NAME" down > /dev/null 2>&1
         ip link delete "$PARAM_VLAN_NAME" > /dev/null 2>&1
     fi
-    log "Adding link '$PARAM_VLAN_NAME' for macvlan in bridge mode"
+    log "Adding macvlan interface '$PARAM_VLAN_NAME' "
     ip link add "$PARAM_VLAN_NAME" link "$PARAM_INTERFACE" type macvlan mode bridge
     
-    # reserve part of the interface scope for macvlan
+    # assign host address to macvlan
     STATUS=$(ip addr | grep "$PARAM_VLAN_NAME")
     if [ -z "$STATUS" ] ; then
-        log "Allocating IP range '$PARAM_IP_RANGE' to '$PARAM_VLAN_NAME'"
-        ip addr add "$PARAM_IP_RANGE" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
-    else
-        log "Updating current IP range of '$PARAM_VLAN_NAME' to '$PARAM_IP_RANGE'"
-        ip addr change "$PARAM_IP_RANGE" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
+        log "Assign IP address '$PARAM_HOST_IP' to '$PARAM_VLAN_NAME'"
+        ip addr add "$PARAM_HOST_IP/32" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
+    else # this should never happen because link is deleted above if exists
+        log "Updating current IP address of '$PARAM_VLAN_NAME' to '$PARAM_HOST_IP'"
+        ip addr change "$PARAM_HOST_IP/32" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
     fi
 
     # bring macvlan interface up
@@ -708,7 +778,7 @@ while [ "$1" != "" ]; do
         -s | --subnet )
             shift
             PARAM_SUBNET="$1"
-            is_valid_cidr_network "$PARAM_SUBNET"
+            is_valid_cidr "$PARAM_SUBNET"
             [ $? == 1 ] && terminate "Invalid subnet"
             ;;
         -g | --gateway )
@@ -720,7 +790,7 @@ while [ "$1" != "" ]; do
         -r | --range )
             shift
             PARAM_IP_RANGE="$1"
-            is_valid_cidr_network "$PARAM_IP_RANGE"
+            is_valid_cidr "$PARAM_IP_RANGE"
             [ $? == 1 ] && terminate "Invalid IP range"
             ;;
         -v | --vlan )
@@ -771,6 +841,10 @@ while [ "$1" != "" ]; do
             shift
             PARAM_WEBPASSWORD="$1"
             ;;
+        --host-ip )
+            shift
+            PARAM_HOST_IP="$1"
+            ;;
         install | network | update  )
             COMMAND="$1"
             ;;
@@ -819,3 +893,4 @@ case "$COMMAND" in
 esac
 
 log "Done."
+
