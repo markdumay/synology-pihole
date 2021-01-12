@@ -152,8 +152,8 @@ is_valid_log_file() {
 
 # Returns 0 (successful) if version string complies with expected format
 is_valid_version() {
-    local IP_VERSION='([0-9]+\.)?([0-9]+\.)?(\*|[0-9]+)'
-    [[ $1 =~ ^$IP_VERSION$ ]] && return 0 || return 1
+    local IP_VERSION='^([0-9]+\.)?([0-9]+\.)?(\*|[0-9]+)$'
+    [[ $1 =~ $IP_VERSION ]] && return 0 || return 1
 }
 
 # Returns 0 (successful) if an IPv4 address complies with expected format
@@ -203,6 +203,7 @@ function is_ip_in_range() {
 # Detects available versions for Pi-hole
 detect_available_versions() {
     # Detect latest available stable Pi-hole version (ignores release candidates)
+    # Repository has stated FTL is the leading developement release version listed as latest.
     if [ -z "$TARGET_PIHOLE_VERSION" ] ; then
         TARGET_PIHOLE_VERSION=$(curl -s "$GITHUB_API_PIHOLE" | grep "tag_name" | egrep -o "[0-9]+.[0-9]+.[0-9]+")
 
@@ -389,7 +390,8 @@ define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
     # Detect current Pi-hole version (should comply with 'version.release.modification')
-    PIHOLE_VERSION=$(docker exec -it "$PIHOLE_CONTAINER" pihole -v 2>/dev/null | grep 'Pi-hole' | awk '{print $4}' \
+    # Repository has stated FTL is the leading developement release version listed as latest.
+    PIHOLE_VERSION=$(docker exec "$PIHOLE_CONTAINER" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
         | cut -c2-)
     is_valid_version "$PIHOLE_VERSION"
     [ $? == 1 ] && PIHOLE_VERSION=''
