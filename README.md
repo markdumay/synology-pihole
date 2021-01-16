@@ -71,7 +71,7 @@ cd synology-pihole
 ## Usage
 *Synology-pihole* requires `sudo` rights. Use the following command to invoke *synology-pihole* from the command line.
 
-```console
+```
 sudo ./syno_pihole.sh [OPTIONS] [PARAMETERS] COMMAND
 ```
 
@@ -101,7 +101,7 @@ sudo ./syno_pihole.sh update
 | **`network`**  | Creates or recreates virtual network |
 | **`update`**   | Updates an existing Pi-hole Docker container |
 
-In the addition, the following options are available.
+In addition, the following options are available.
 
 | Option | Alias      | Parameter  | Description |
 |--------|------------|------------|-------------|
@@ -114,19 +114,20 @@ In the addition, the following options are available.
 | Variable          | Parameter       | Required | Example               | Description |
 |-------------------|-----------------|----------|----------------------|-------------|
 | `PIHOLE_IP`       | -i, --ip        | `Yes`    | `192.168.0.250`      | Static IP address of Pi-hole, ensure this IP address is available |
-| `SUBNET`          | -s, --subnet    | `No`     | `192.168.0.0/24`     | Subnet of the virtual network for Pi-hole (auto-detected if omitted) |
-| `GATEWAY`         | -g, --gateway   | `No`     | `192.168.0.1`        | Gateway of the virtual network for Pi-hole (auto-detected if omitted) |
-| `IP_RANGE`        | -r, --range     | `No`     | `192.168.0.250/30`   | IP range with CIDR notation of the virtual network for Pi-hole (defaults to `PIHOLE_IP/30`) |
-| `VLAN_NAME`       | -v, --vlan      | `No`     | `macvlan0`           | Name of the virtual network for Pi-hole (defaults to `macvlan0`) |
-| `INTERFACE`       | -n, --interface | `No`     | `eth0`               | Physical interface of the virtual network for Pi-hole (auto-detected if omitted) |
-| `MAC_ADDRESS`     | -m, --mac       | `No`     | `70:d9:5a:70:99:cd`  | Unicast MAC address of Pi-hole (randomized if omitted) |
-| `DOMAIN_NAME`     | -d, --domain    | `No`     | `pihole.example.com` | Fully qualified domain name for Pi-hole |
-| `PIHOLE_HOSTNAME` | -H, --host      | `No`     | `pihole`             | Hostname of Pi-hole (defaults to `pihole`) |
-| `TIMEZONE`        | -t, --timezone  | `No`     | `Europe/Amsterdam`   | Timezone for Pi-hole (see [Wikipedia][timezone_list] for an overview, auto-detected if omitted) |
+| `INTERFACE`       | -n, --interface | `No`     | `eth0`               | Host network interface to the subnet, auto-detected if omitted |
+| `SUBNET`          | -s, --subnet    | `No`     | `192.168.0.0/24`     | CIDR notated subnet the Pi-Hole will join, auto-detected if omitted |
+| `GATEWAY`         | -g, --gateway   | `No`     | `192.168.0.1`        | Subnet gateway router address (see --subnet), auto-detected if omitted |
+| `HOST_IP`         | --host-ip       | `No`     | `192.168.0.3`        | New host address for communicating with Pi-hole via macvlan bridge interface. By default the lowest address starting at the first (not the Pi-hole address) of the Docker network range (see --range) is used |
+| `IP_RANGE`        | -r, --range     | `No`     | `192.168.0.250/30`   | CIDR notated address range for Docker to assign to containers attached to the created 'Docker macvlan Network', defaults to `PIHOLE_IP/32` |
+| `VLAN_NAME`       | -v, --vlan      | `No`     | `macvlan0`           | Name assigned to the generated macvlan interface on the host to enable container <-> host communication (defaults to `macvlan0`) |
+| `MAC_ADDRESS`     | -m, --mac       | `No`     | `70:d9:5a:70:99:cd`  | Unicast MAC to assign Pi-hole, randomized if omitted |
+| `DOMAIN_NAME`     | -d, --domain    | `No`     | `example.com` | Fully qualified domain of the subnet |
+| `PIHOLE_HOSTNAME` | -H, --host      | `No`     | `pihole`             | Hostname of Pi-hole, defaults to `pihole` |
+| `TIMEZONE`        | -t, --timezone  | `No`     | `Europe/Amsterdam`   | Local Timezone (see [Wikipedia][timezone_list] for an overview, auto-detected if omitted) |
 | `DNS1`            | --DNS1          | `No`     | `1.1.1.1`            | Primary DNS provider to be used by Pi-hole (see this [list][upstream_dns] for typical providers) |
 | `DNS2`            | --DNS2          | `No`     | `1.0.0.1`            | Alternative DNS provider to be used by Pi-hole |
-| `DATA_PATH`       | --path          | `No`     | `./data`             | Path where to store your Pi-hole data (defaults to `./data`) |
-| `WEBPASSWORD`     | -p, --password  | `No`     | `password`           | Password for the Pi-hole admin (prompted for when omitted) |
+| `DATA_PATH`       | --path          | `No`     | `./data`             | Host data location path for Pi-hole, defaults to `./data` |
+| `WEBPASSWORD`     | -p, --password  | `No`     | `password`           | Password for the Pi-hole administrative web interface (prompted for when omitted) |
 
 ### Scheduled Tasks
 #### Updating Pi-Hole to the Latest Version
@@ -139,10 +140,10 @@ It is recommended to schedule a task to ensure Pi-hole uses the latest  version 
     /bin/sh /path/to/your/script/syno_pihole.sh update -l /var/log/syno_pihole.log
     ```
 
-#### Ensuring the Virtual Network is Available After Reboot
-By default, Docker containers are automatically restarted after a system reboot. However, the virtual network setup by `synology-pihole` is lost after a system reboot and/or update. Similar to the instructions in the previous paragraph, you can setup a task to automatically recreate the virtual network during the boot process of your Synology NAS. Follow these steps to do so.
+#### Ensuring the Host <-> Container Bridge Interface is Available After Reboot
+By default, Docker containers are automatically restarted after a system reboot. However, the macvlan bridge interface setup by `synology-pihole` is lost after a system reboot and/or update. Similar to the instructions in the previous paragraph, you can setup a task to automatically recreate it during the boot process of your Synology NAS. Follow these steps to do so.
 1. Access `Task Scheduler` via `Control Panel ➡ Task Scheduler` in DSM. 
-2. Now click on `Create ➡ Triggered Task ➡ User-defined script` to create a custom script. Give the task a familiar name in the tab `General`, such as `Recreate Pi-hole network`.
+2. Now click on `Create ➡ Triggered Task ➡ User-defined script` to create a custom script. Give the task a familiar name in the tab `General`, such as `Recreate Pi-hole Bridge Interface`.
 3. In the same screen, select `root` as user and `Boot-up` as event.
 4. Finally, enter the following script in the user-defined script section of the `Task Settings` tab. Be sure to update `/path/to/your/script/`. The optional instruction `-l /var/log/syno_pihole.log` copies all messages to a log file. The option `--force` is required to avoid the script asking for user confirmation.
     ```console
@@ -150,7 +151,7 @@ By default, Docker containers are automatically restarted after a system reboot.
     ```
 
 ### Configuration
-The Pi-hole [FAQ][pihole_dns] describes various options on how to configure Pi-hole as DNS server. The portal of Pi-hole is available by navigating to `http://ip_address/admin/` (replacing `ip_address` with the correct IP address).
+The Pi-hole [FAQ][pihole_dns] describes various options on how to configure the Pi-hole DNS server. The Pi-hole administor web interface is available by navigating to `http://ip_address/admin/` (replacing `ip_address` with the correct IP address).
 
 
 ## Contributing
