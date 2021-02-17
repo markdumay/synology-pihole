@@ -4,7 +4,7 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : September 19th, 2020
+# Date          : September 29th, 2020
 # Version       : 0.9
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] COMMAND
 # Repository    : https://github.com/markdumay/synology-pihole.git
@@ -140,8 +140,10 @@ validate_provided_path() {
     # cut trailing '/' and convert to absolute path
     PARAM_DATA_PATH=$(readlink -f "$PARAM_DATA_PATH")
 
-    # create path if needed
+    # create base path and child directories if needed
     mkdir -p "$PARAM_DATA_PATH"
+    mkdir -p "$PARAM_DATA_PATH/pihole"
+    mkdir -p "$PARAM_DATA_PATH/dnsmasq.d"
 
     # check path exists
     [ -d "$PARAM_DATA_PATH" ] && return 0 || return 1
