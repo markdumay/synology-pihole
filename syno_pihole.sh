@@ -1,22 +1,21 @@
 #!/bin/sh
 
-#======================================================================================================================
+#=======================================================================================================================
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : September 29th, 2020
-# Version       : 0.9
-# Usage         : sudo ./syno_pihole.sh [OPTIONS] COMMAND
+# Date          : February 19th, 2021
+# Version       : 1.0.0
+# Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
 # Credits       : Inspired by https://gist.github.com/xirixiz/ecad37bac9a07c2a1204ab4f9a17db3c
-#======================================================================================================================
+#=======================================================================================================================
 
-#======================================================================================================================
+#=======================================================================================================================
 # Constants
-#======================================================================================================================
+#=======================================================================================================================
 RED='\033[0;31m' # Red color
-GREEN='\033[0;32m' # Green color
 NC='\033[0m' # No Color
 BOLD='\033[1m' #Bold color
 
@@ -25,52 +24,67 @@ SYNO_DOCKER_SERV_NAME=pkgctl-Docker
 DEFAULT_PIHOLE_VERSION='5.1.2'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
-GITHUB_API_PIHOLE=https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest
-PIHOLE_CONTAINER='pihole'
+GITHUB_API_PIHOLE='https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest'
 PI_TIMEOUT=120 # timeout to wait for Pi-hole response (in seconds)
 NW_TIMEOUT=600 # timeout to wait for network response (in seconds)
 
 
-#======================================================================================================================
+#=======================================================================================================================
 # Variables
-#======================================================================================================================
-PARAM_PIHOLE_IP=''
-PARAM_SUBNET=''
-PARAM_HOST_IP=''
-PARAM_GATEWAY=''
-PARAM_IP_RANGE=''
-PARAM_VLAN_NAME=''
-PARAM_INTERFACE=''
-PARAM_MAC_ADDRESS=''
-PARAM_DOMAIN_NAME=''
-PARAM_PIHOLE_HOSTNAME=''
-PARAM_TIMEZONE=''
-PARAM_DNS1=''
-PARAM_DNS2=''
-PARAM_DATA_PATH=''
-PARAM_WEBPASSWORD=''
-PARAM_LOG_FILE=''
-FORCE='false'
-LOG_PREFIX=''
-COMMAND=''
-STEP=0
-TOTAL_STEPS=1
-WORKDIR="$(dirname "$(readlink -f "$0")")" # initialize working directory
+#=======================================================================================================================
+param_pihole_ip=''
+param_subnet=''
+param_host_ip=''
+param_gateway=''
+param_ip_range=''
+param_vlan_name=''
+param_interface=''
+param_mac_address=''
+param_domain_name=''
+param_pihole_hostname=''
+param_timezone=''
+param_dns1=''
+param_dns2=''
+param_data_path=''
+param_webpassword=''
+param_log_file=''
+dsm_major_version=''
+docker_version=''
+compose_version=''
+force='false'
+log_prefix=''
+command=''
+target_pihole_version=''
+step=0
+total_steps=1
+workdir="$(dirname "$(readlink -f "$0")")" # initialize working directory
 
 
-#======================================================================================================================
+#=======================================================================================================================
 # Helper Functions
-#======================================================================================================================
+#=======================================================================================================================
 
-# Display script header
+#=======================================================================================================================
+# Display script header (only in interactive mode).
+#=======================================================================================================================
+# Globals:
+#   - log_prefix
+# Outputs:
+#   Writes message to stdout.
+#=======================================================================================================================
 show_header() {
-    [ ! -z "$LOG_PREFIX" ] && return
+    [ -n "${log_prefix}" ] && return
 
     echo "Install or Update Pi-hole as Docker container on Synology"
     echo
 }
 
-# Display usage message
+#=======================================================================================================================
+# Display usage message.
+#=======================================================================================================================
+# Outputs:
+#   Writes message to stdout.
+#=======================================================================================================================
 usage() { 
     echo "Usage: $0 [OPTIONS] COMMAND" 
     echo
@@ -109,249 +123,459 @@ usage() {
     echo
 }
 
-# Display error message and terminate with non-zero error
+#======================================================================================================================
+# Displays error message on console and log file, terminate with non-zero error.
+#======================================================================================================================
+# Arguments:
+#   $1 - Error message to display.
+# Outputs:
+#   Writes error message to stderr and optional log file, non-zero exit code.
+#======================================================================================================================
+# shellcheck disable=SC2059
 terminate() {
-    echo -e "${RED}${BOLD}${LOG_PREFIX}ERROR: $1${NC}" 1>&2
-    if [ ! -z "$PARAM_LOG_FILE" ] ; then
-        echo "${LOG_PREFIX}ERROR: $1" >> "$PARAM_LOG_FILE"
+    printf "${RED}${BOLD}${log_prefix}ERROR: $1${NC}\n" 1>&2
+    if [ -n "${param_log_file}" ] ; then
+        echo "${log_prefix}ERROR: $1" >> "${param_log_file}"
     fi
     exit 1
 }
 
-# Prints current progress to the console
+#======================================================================================================================
+# Print current progress to the console and log file, shows progress against total number of steps.
+#======================================================================================================================
+# Arguments:
+#   $1 - Progress message to display.
+# Outputs:
+#   Writes message to stdout and optional log file.
+#======================================================================================================================
 print_status() {
-    ((STEP++))
-    echo -e "${BOLD}${LOG_PREFIX}Step $STEP from $TOTAL_STEPS: $1${NC}"
-    if [ ! -z "$PARAM_LOG_FILE" ] ; then
-        echo "${LOG_PREFIX}Step $STEP from $TOTAL_STEPS: $1" >> "$PARAM_LOG_FILE"
+    step=$((step + 1))
+    printf "${BOLD}%s${NC}\n" "Step ${step} from ${total_steps}: $1"
+    if [ -n "${param_log_file}" ] ; then
+        echo "${log_prefix}Step ${step} from ${total_steps}: $1" >> "${param_log_file}"
     fi
 }
 
-# Prints current progress to the console in normal or logging format
+#======================================================================================================================
+# Prints current progress to the console in normal or logging format.
+#======================================================================================================================
+# Arguments:
+#   $1 - Log message to display.
+# Outputs:
+#   Writes message to stdout and optional log file.
+#======================================================================================================================
+# shellcheck disable=SC2059
 log() {
-    echo "${LOG_PREFIX}$1"
-    if [ ! -z "$PARAM_LOG_FILE" ] ; then
-        echo "${LOG_PREFIX}$1" >> "$PARAM_LOG_FILE"
+    printf "${log_prefix}$1\n"
+    if [ -n "${param_log_file}" ] ; then
+        echo "${log_prefix}$1" >> "${param_log_file}"
     fi
 }
 
-# Returns 0 (successful) is data path is available or successfully created; adjusts $PARAM_DATA_PATH" to absolute path
+#======================================================================================================================
+# Validates the data path parameter and creates directories if needed. It adjusts the path to an absolute path.
+#======================================================================================================================
+# Globals:
+#   - param_data_path
+# Outputs:
+#   Returns 0 (successful) or 1 (not successful).
+#======================================================================================================================
 validate_provided_path() {
     # cut trailing '/' and convert to absolute path
-    PARAM_DATA_PATH=$(readlink -f "$PARAM_DATA_PATH")
+    param_data_path=$(readlink -f "${param_data_path}")
 
     # create base path and child directories if needed
-    mkdir -p "$PARAM_DATA_PATH"
-    mkdir -p "$PARAM_DATA_PATH/pihole"
-    mkdir -p "$PARAM_DATA_PATH/dnsmasq.d"
+    mkdir -p "${param_data_path}" "${param_data_path}/pihole" "${param_data_path}/dnsmasq.d"
 
     # check path exists
-    [ -d "$PARAM_DATA_PATH" ] && return 0 || return 1
+    [ -d "${param_data_path}" ] && return 0 || return 1
 }
 
-# Returns 0 (successful) is file path is available; adjusts $PARAM_LOG_FILE" to absolute path
+#======================================================================================================================
+# Validates the log path and file parameter. It adjusts the path to an absolute path.
+#======================================================================================================================
+# Globals:
+#   - param_log_file
+# Outputs:
+#   Returns 0 (successful) or 1 (not successful).
+#======================================================================================================================
 is_valid_log_file() {
     # cut trailing '/' and convert to absolute path
-    PARAM_LOG_FILE=$(readlink -f "$PARAM_LOG_FILE")
+    param_log_file=$(readlink -f "${param_log_file}")
 
     # check path exists
-    local DIR=$(dirname "$PARAM_LOG_FILE")
-    [ -d "$DIR" ] && return 0 || return 1
+    dir=$(dirname "${param_log_file}")
+    [ -d "${dir}" ] && return 0 || return 1
 }
 
-# Returns 0 (successful) if version string complies with expected format
+#======================================================================================================================
+# Validates if a version string complies with the expected format.
+#======================================================================================================================
+# Arguments:
+#   $1 - Version string.
+# Outputs:
+#   Returns 0 (successful) or 1 (not successful).
+#======================================================================================================================
 is_valid_version() {
-    local IP_VERSION='^([0-9]+\.)?([0-9]+\.)?(\*|[0-9]+)$'
-    [[ $1 =~ $IP_VERSION ]] && return 0 || return 1
+    re='^([0-9]+\.)?([0-9]+\.)?(\*|[0-9]+)$'
+    echo "$1" | grep -qE "${re}"
 }
 
-# Returns 0 (successful) if an IPv4 address complies with expected format
+#======================================================================================================================
+# Validates if an IPv4 address complies with expected format.
+#======================================================================================================================
+# Arguments:
+#   $1 - IPv4 string.
+# Outputs:
+#   Returns 0 (successful) or 1 (not successful).
+#======================================================================================================================
 is_valid_ip() {
-    local IP_REGEX='(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}'
-    [[ $1 =~ ^$IP_REGEX$ ]] && return 0 || return 1
+    re='(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}'
+    echo "$1" | grep -qE "${re}"
 }
 
-# Returns 0 (successful) if an IPv4 address and routing suffix (CIDR format) comply with expected format
+#======================================================================================================================
+# Validates if an IPv4 address and routing suffix (CIDR format) comply with expected format.
+#======================================================================================================================
+# Arguments:
+#   $1 - IPv4 and suffix string.
+# Outputs:
+#   Returns 0 (successful) or 1 (not successful).
+#======================================================================================================================
 is_valid_cidr() {
-    local CIDR_REGEX='(((25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?))'
-    CIDR_REGEX+='(\/([8-9]|[1-2][0-9]|3[0-2]))$'
-    [[ $1 =~ ^$CIDR_REGEX$ ]] && return 0 || return 1
+    re='(((25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9][0-9]?))(\/([8-9]|[1-2][0-9]|3[0-2]))$'
+    echo "$1" | grep -qE "${re}"
 }
 
-# Returns 0 (successful) if a MAC address complies with expected unicast format (using ':' separator)
+#======================================================================================================================
+# Validates if a MAC address complies with expected format. As ':' separator is expected.
+#======================================================================================================================
+# Arguments:
+#   $1 - MAC address string.
+# Outputs:
+#   Returns 0 (successful) or 1 (not successful).
+#======================================================================================================================
 is_valid_mac_address() {
-    local MAC_REGEX='([a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}'
-    local UNICAST=$(echo "$1" | sed -e 's/^\(.\)[13579bdf]/\10/') # parses unicast MAC from input
-    [[ $1 =~ ^$MAC_REGEX$ ]] && [[ $1 == "$UNICAST" ]]  && return 0 || return 1
+    re='([a-fA-F0-9]{2}:){5}[a-fA-F0-9]{2}'
+    unicast=$(echo "$1" | sed -e 's/^\(.\)[13579bdf]/\10/') # parses unicast MAC from input
+    (echo "$1" | grep -qE "${re}") && [ "$1" = "${unicast}" ] && return 0 || return 1
 }
 
-# Converts an IP address ($1) to an integer
-function convert_ip_to_int() {
-    local IFS_BACKUP="$IFS" a b c d ip=$@
-    IFS=. read -r a b c d <<< "$ip"
-    echo "$((a * 256 ** 3 + b * 256 ** 2 + c * 256 + d))"
-    IFS="$IFS_BACKUP"
+#======================================================================================================================
+# Converts an IP address into its integer representation.
+#======================================================================================================================
+# Arguments:
+#   $1 - IP address string.
+# Outputs:
+#   IP integer.
+#======================================================================================================================
+convert_ip_to_int() {
+    echo "$1" | tr . '\n' | awk '{s = s*256 + $1} END{print s}'
 }
-# Converts a decimal integer to a dotted IPv4 address
+
+#======================================================================================================================
+# Converts a decimal integer to a dotted IPv4 address.
 # https://stackoverflow.com/questions/10768160/ip-address-converter
-function convert_int_to_ip() {
-    local ip dec=$@
-    for e in {3..0}
-    do
-        ((octet = dec / (256 ** e) ))
-        ((dec -= octet * 256 ** e))
-        ip+=$delim$octet
-        delim=.
-    done
-    echo "$ip"
+#======================================================================================================================
+# Arguments:
+#   $1 - IP address decimal integer.
+# Outputs:
+#   IP address string.
+#======================================================================================================================
+convert_int_to_ip() {
+    a=$((~(-1<<8))) b=$1; 
+    set -- "$((b>>24&a))" "$((b>>16&a))" "$((b>>8&a))" "$((b&a))";
+    IFS=.;
+    echo "$*";
 }
 
-# Returns 0 if an IP address ($1) is in available CIDR range ($2), returns 1 otherwise
-# Assumes IP address and CIDR range are valid parameters
-function is_ip_in_range() {
-    local IP="$1"
-    local IP_CIDR="$2"
+#======================================================================================================================
+# Validates if an IP address is within an available CIDR range. Assumes IP address and CIDR range are valid parameters.
+#======================================================================================================================
+# Arguments:
+#   $1 - IP address.
+#   $2 - CIDR range.
+# Outputs:
+#   Returns 0 if an IP address is in available CIDR range, returns 1 otherwise.
+#======================================================================================================================
+is_ip_in_range() {
+    ip="$1"
+    ip_cidr="$2"
 
-    local IP_INT=$(convert_ip_to_int "$IP")
-    local CIDR_MIN_IP=$(ipcalc -n "$IP_CIDR" | cut -f2 -d=)  # network address is start of the range
-    local CIDR_MAX_IP=$(ipcalc -b "$IP_CIDR" | cut -f2 -d=)  # broadcast address is end of the range
-    local CIDR_MIN_IP_INT=$(convert_ip_to_int "$CIDR_MIN_IP")
-    local CIDR_MAX_IP_INT=$(convert_ip_to_int "$CIDR_MAX_IP")
+    ip_int=$(convert_ip_to_int "${ip}")
+    cidr_min_ip=$(ipcalc -n "${ip_cidr}" | cut -f2 -d=)  # network address is start of the range
+    cidr_max_ip=$(ipcalc -b "${ip_cidr}" | cut -f2 -d=)  # broadcast address is end of the range
+    cidr_min_ip_int=$(convert_ip_to_int "${cidr_min_ip}")
+    cidr_max_ip_int=$(convert_ip_to_int "${cidr_max_ip}")
 
-    [ "$IP_INT" -ge "$CIDR_MIN_IP_INT" ] && [ "$IP_INT" -le "$CIDR_MAX_IP_INT" ] && return 0 || return 1
+    [ "${ip_int}" -ge "${cidr_min_ip_int}" ] && [ "${ip_int}" -le "${cidr_max_ip_int}" ] && return 0 || return 1
 }
 
-# Returns 0 if CIDR range is a valid unicast address range of the subnet, returns 1 otherwise
-# Assumes both arguments are are valid CIDR values
-function is_cidr_in_subnet() {
-    local RANGE_CIDR="$1"
-    local SUBNET_CIDR="$2"
-    local RANGE_PREFIX_SIZE=$(echo "$RANGE_CIDR" | cut -d/ -f2)
-    local SUBNET_PREFIX_SIZE=$(echo "$SUBNET_CIDR" | cut -d/ -f2)
+
+#======================================================================================================================
+# Validates if a CIDR range is a valid unicast address range of a provided subnet. Assumes both arguments are are valid 
+# CIDR values.
+#======================================================================================================================
+# Arguments:
+#   $1 - Unicast address range in CIDR notation.
+#   $2 - Range of subnet in CIDR notation.
+# Outputs:
+#   Returns 0 if CIDR range is a valid unicast address range of the subnet, returns 1 otherwise.
+#======================================================================================================================
+is_cidr_in_subnet() {
+    range_cidr="$1"
+    subnet_cidr="$2"
+    range_prefix_size=$(echo "${range_cidr}" | cut -d/ -f2)
+    subnet_prefix_size=$(echo "${subnet_cidr}" | cut -d/ -f2)
 
     # range prefix must be bigger than local subnets
-    [ $RANGE_PREFIX_SIZE -le $SUBNET_PREFIX_SIZE ] && return 1
+    [ "${range_prefix_size}" -le "${subnet_prefix_size}" ] && return 1
 
     # local broadcast address conflict?
-    local SUBNET_BCAST=$(ipcalc -b "$SUBNET_CIDR" | cut -f2 -d=)
-    local SUBNET_BCAST_INT=$(convert_ip_to_int "$SUBNET_BCAST_INT")
-    is_ip_in_range "$SUBNET_BCAST" "$RANGE_CIDR"
-    [ $? == 0 ] && return 1
+    subnet_bcast=$(ipcalc -b "${subnet_cidr}" | cut -f2 -d=)
+    subnet_bcast_int=$(convert_ip_to_int "${subnet_bcast_int}")
+    if is_ip_in_range "${subnet_bcast}" "${range_cidr}"; then return 1; fi
 
     # if a single range address is in the subnet then range is contained
-    local RANGE_IP=$(echo "$RANGE_CIDR" | cut -d/ -f1)
-    is_ip_in_range "$RANGE_IP" "$SUBNET_CIDR"
-    [ $? == 0 ] && return 0 || return 1
+    range_ip=$(echo "${range_cidr}" | cut -d/ -f1)
+    if is_ip_in_range "${range_ip}" "${subnet_cidr}"; then return 0; else return 1; fi
 }
 
-# Detects available versions for Pi-hole
+#======================================================================================================================
+# Detects latest available stable Pi-hole version, ignoring release candidates. FTL is considered to be the leading
+# development release version. If no release is found, the constant DEFAULT_PIHOLE_VERSION is used instead.
+#======================================================================================================================
+# Globals:
+#   - target_pihole_version
+#======================================================================================================================
 detect_available_versions() {
-    # Detect latest available stable Pi-hole version (ignores release candidates)
-    # Repository has stated FTL is the leading developement release version listed as latest.
-    if [ -z "$TARGET_PIHOLE_VERSION" ] ; then
-        TARGET_PIHOLE_VERSION=$(curl -s "$GITHUB_API_PIHOLE" | grep "tag_name" | egrep -o "[0-9]+.[0-9]+.[0-9]+")
+    if [ -z "${target_pihole_version}" ] ; then
+        target_pihole_version=$(curl -s "${GITHUB_API_PIHOLE}" | grep "tag_name" | grep -Eo "v[0-9]+.[0-9]+(.[0-9]+)?")
+        target_pihole_version=$(echo "${target_pihole_version}" | sed 's/v//g')
 
-        if [ -z "$TARGET_PIHOLE_VERSION" ] ; then
+        if [ -z "${target_pihole_version}" ] ; then
             log "Could not detect latest available Pi-hole version, setting default value"
-            TARGET_PIHOLE_VERSION="$DEFAULT_PIHOLE_VERSION"
+            target_pihole_version="${DEFAULT_PIHOLE_VERSION}"
         fi
     fi
 }
 
-# Initialize environment variables and default settings
+#======================================================================================================================
+# Initializes environment variables from a .env file if available. Command line arguments take precedence. The only
+# mandatory parameter is the Pi-hole IP address.
+#======================================================================================================================
+# Globals:
+#   - target_pihole_version
+#   - param_vlan_name
+#   - param_pihole_hostname
+#   - param_dns1
+#   - param_dns2
+#   - param_data_path
+#   - param_domain_name
+#   - param_pihole_ip
+#   - param_subnet
+#   - param_gateway
+#   - param_ip_range
+#   - param_host_ip
+#   - param_interface
+#   - param_mac_address
+#   - param_timezone
+#   - param_webpassword
+#   - param_pihole_ip
+# Outputs:
+#   Exits with a non-zero exit code code if no valid IP address is provided for Pi-hole.
+#======================================================================================================================
 init_env() {
     # read environment variables if .env file is present
-    local ENV_FILE="$WORKDIR/.env"
-    if [ -f "$ENV_FILE" ]; then
-        export $(echo $(cat "$ENV_FILE" | sed 's/#.*//g'| xargs))
+    env_file="${workdir}/.env"
+    if [ -f "${env_file}" ]; then
+        vars=$(sed 's/#.*//g' < "${env_file}" | xargs)
+        eval "export ${vars}"
     fi
 
     # initialize optional parameters with either provided or default values
-    [ -z "$PARAM_VLAN_NAME" ] && PARAM_VLAN_NAME=${VLAN_NAME:-macvlan0}
-    [ -z "$PARAM_PIHOLE_HOSTNAME" ] && PARAM_PIHOLE_HOSTNAME=${PIHOLE_HOSTNAME:-pihole}
-    [ -z "$PARAM_DNS1" ] && PARAM_DNS1=${DNS1:-1.1.1.1}
-    [ -z "$PARAM_DNS2" ] && PARAM_DNS2=${DNS2:-1.0.0.1}
-    [ -z "$PARAM_DATA_PATH" ] && PARAM_DATA_PATH=${DATA_PATH:-./data}
-    [ -z "$PARAM_DOMAIN_NAME" ] && PARAM_DOMAIN_NAME=${DOMAIN_NAME:-"$PARAM_PIHOLE_HOSTNAME".local}
+    [ -z "${param_vlan_name}" ] && param_vlan_name="${VLAN_NAME:-macvlan0}"
+    [ -z "${param_pihole_hostname}" ] && param_pihole_hostname="${PIHOLE_HOSTNAME:-pihole}"
+    [ -z "${param_dns1}" ] && param_dns1="${DNS1:-1.1.1.1}"
+    [ -z "${param_dns2}" ] && param_dns2="${DNS2:-1.0.0.1}"
+    [ -z "${param_data_path}" ] && param_data_path="${DATA_PATH:-./data}"
+    [ -z "${param_domain_name}" ] && param_domain_name="${DOMAIN_NAME:-${param_pihole_hostname}.local}"
 
     # initialize provided parameters
-    [ -z "$PARAM_PIHOLE_IP" ] && PARAM_PIHOLE_IP=${PIHOLE_IP}
-    [ -z "$PARAM_SUBNET" ] && PARAM_SUBNET=${SUBNET}
-    [ -z "$PARAM_GATEWAY" ] && PARAM_GATEWAY=${GATEWAY}
-    [ -z "$PARAM_IP_RANGE" ] && PARAM_IP_RANGE=${IP_RANGE}
-    [ -z "$PARAM_HOST_IP" ] && PARAM_HOST_IP=${HOST_IP}
-    [ -z "$PARAM_INTERFACE" ] && PARAM_INTERFACE=${INTERFACE}
-    [ -z "$PARAM_MAC_ADDRESS" ] && PARAM_MAC_ADDRESS=${MAC_ADDRESS}
-    [ -z "$PARAM_TIMEZONE" ] && PARAM_TIMEZONE=${TIMEZONE}
-    [ -z "$PARAM_WEBPASSWORD" ] && PARAM_WEBPASSWORD=${WEBPASSWORD}
+    [ -z "${param_pihole_ip}" ] && param_pihole_ip="${PIHOLE_IP}"
+    [ -z "${param_subnet}" ] && param_subnet="${SUBNET}"
+    [ -z "${param_gateway}" ] && param_gateway="${GATEWAY}"
+    [ -z "${param_ip_range}" ] && param_ip_range="${IP_RANGE}"
+    [ -z "${param_host_ip}" ] && param_host_ip="${HOST_IP}"
+    [ -z "${param_interface}" ] && param_interface="${INTERFACE}"
+    [ -z "${param_mac_address}" ] && param_mac_address="${MAC_ADDRESS}"
+    [ -z "${param_timezone}" ] && param_timezone="${TIMEZONE}"
+    [ -z "${param_webpassword}" ] && param_webpassword="${WEBPASSWORD}"
 
     # validate mandatory parameters are available
-    is_valid_ip "$PARAM_PIHOLE_IP"
-    [ $? == 1 ] && terminate "No valid IP address provided"
+    is_valid_ip "${param_pihole_ip}" || terminate "No valid IP address provided"
 }
 
-# initialize auto-detected settings for omitted parameters
+#======================================================================================================================
+# Initializes auto-detected settings for any omitted parameters.
+#======================================================================================================================
+# Globals:
+#   - param_subnet
+#   - param_gateway
+#   - param_ip_range
+#   - param_host_ip
+#   - param_interface
+#   - param_mac_address
+#   - param_timezone
+# Outputs:
+#   Initialized parameters.
+#======================================================================================================================
 init_auto_detected_values() {
     # add auto-detected settings for omitted parameters
-    if [ -z "$PARAM_SUBNET" ] ; then
-        DEFAULT_HOST_IP=$(ip route list | grep "default" | awk '{print $7}')
-        PARAM_SUBNET=$(ip route list | grep "proto" | grep "$DEFAULT_HOST_IP" | awk '{print $1}')
+    if [ -z "${param_subnet}" ] ; then
+        default_host_ip=$(ip route list | grep "default" | awk '{print $7}')
+        param_subnet=$(ip route list | grep "proto" | grep "${default_host_ip}" | awk '{print $1}')
     fi
 
-    if [ -z "$PARAM_GATEWAY" ] ; then
-        PARAM_GATEWAY=$(ip route list | grep "default" | awk '{print $3}')
+    if [ -z "${param_gateway}" ] ; then
+        param_gateway=$(ip route list | grep "default" | awk '{print $3}')
     fi
     
-    if [ -z "$PARAM_IP_RANGE" ] && [ ! -z "$PARAM_PIHOLE_IP" ] ; then
+    if [ -z "${param_ip_range}" ] && [ -n "${param_pihole_ip}" ] ; then
         # Reserve minimal range
-        PARAM_IP_RANGE="$PARAM_PIHOLE_IP/32"
+        param_ip_range="${param_pihole_ip}/32"
     fi
 
-    if [ -z "$PARAM_INTERFACE" ] ; then
-        PARAM_INTERFACE=$(ip route list | grep "default" | awk '{print $5}')
+    if [ -z "${param_interface}" ] ; then
+        param_interface=$(ip route list | grep "default" | awk '{print $5}')
     fi
 
-    if [ -z "$PARAM_MAC_ADDRESS" ] ; then
+    if [ -z "${param_mac_address}" ] ; then
         # generate random unicast MAC address
-        PARAM_MAC_ADDRESS=$(od -An -N6 -tx1 /dev/urandom | \
+        param_mac_address=$(od -An -N6 -tx1 /dev/urandom | \
             sed -e 's/^  *//' -e 's/  */:/g' -e 's/:$//' -e 's/^\(.\)[13579bdf]/\10/')
     fi
 
-    if [ -z "$PARAM_TIMEZONE" ] ; then
-        PARAM_TIMEZONE=$(find /usr/share/zoneinfo/ -type f -exec sh -c "diff -q /etc/localtime '{}' \
-            > /dev/null && echo {}" \; | sed 's|/usr/share/zoneinfo/||g')
+    if [ -z "${param_timezone}" ] ; then
+        param_timezone=$(find /usr/share/zoneinfo/ -type f -exec sh -c \
+            'diff -q /etc/localtime "$1" > /dev/null && echo "$1"' _ {} \; | sed 's|/usr/share/zoneinfo/||g')
     fi
 }
 
-# generate any required omitted parameters
+#======================================================================================================================
+# Generates any required omitted parameters.
+#======================================================================================================================
+# Globals:
+#   - param_host_ip
+# Outputs:
+#   Initialized parameters.
+#======================================================================================================================
 init_generated_values() {
     # host macvlan bridge ip
-    if [ -z "$PARAM_HOST_IP" ] ; then
-        local ip=$(ipcalc -n "$PARAM_IP_RANGE" | cut -f2 -d=)
-        local ip_int=$(convert_ip_to_int "$ip")
-        local ph_int=$(convert_ip_to_int "$PARAM_PIHOLE_IP")
+    if [ -z "${param_host_ip}" ] ; then
+        ip=$(ipcalc -n "${param_ip_range}" | cut -f2 -d=)
+        ip_int=$(convert_ip_to_int "${ip}")
+        ph_int=$(convert_ip_to_int "${param_pihole_ip}")
 
-        if [ $ip_int == $ph_int ] ; then
-            $((ip_int++))
-        fi
-        PARAM_HOST_IP=$(convert_int_to_ip "$ip_int")
+        [ "${ip_int}" = "${ph_int}" ] && ip_int=$((ip_int + 1))
+        param_host_ip=$(convert_int_to_ip "${ip_int}")
     fi
 }
 
-# Replaces escaped old string $1 with escaped new string $2 in file $3
+#======================================================================================================================
+# Replaces an old value in a file with a new value. The strings are escaped to avoid processing errors.
+#======================================================================================================================
+# Arguments:
+#   $1 - Old string.
+#   $2 - New string.
+#   $3 - Filename.
+# Outputs:
+#   Replaced value in file.
+#======================================================================================================================
 safe_replace_in_file() {
-    local OLD="$1"
-    local NEW="$2"
-    local FILE="${3:--}"
-    local ESC_OLD=$(sed 's/[^^\\]/[&]/g; s/\^/\\^/g; s/\\/\\\\/g' <<< "$OLD")
-    local ESC_NEW=$(sed 's/[&/\]/\\&/g' <<< "$NEW")
-    sed -i "s/$ESC_OLD/$ESC_NEW/g" "$3"
+    old=$(echo "$1" | sed 's/[^^\\]/[&]/g; s/\^/\\^/g; s/\\/\\\\/g')
+    new=$(echo "$2" | sed 's/[&/\]/\\&/g')
+    file="${3:--}"
+    sed -i "s/${old}/${new}/g" "${file}"
 }
 
-# Validate parameter settings
+#=======================================================================================================================
+# Parse a YAML file into a flat list of variables.
+#=======================================================================================================================
+# Source: https://gist.github.com/briantjacobs/7753bf850ca5e39be409
+# Arguments:
+#   $1 - YAML file to use as input
+# Outputs:
+#   Writes flat variable list to stdout, returns 1 if not successful
+#=======================================================================================================================
+parse_yaml() {
+    [ ! -f "$1" ] && return 1
+    
+    s='[[:space:]]*'
+    w='[a-zA-Z0-9_]*'
+    fs="$(echo @|tr @ '\034')"
+    sed -ne "s|^\($s\)\($w\)$s:$s\"\(.*\)\"$s\$|\1$fs\2$fs\3|p" 2> /dev/null \
+        -e "s|^\($s\)\($w\)${s}[:-]$s\(.*\)$s\$|\1$fs\2$fs\3|p" "$1" 2> /dev/null |
+    awk -F"$fs" '{
+    indent = length($1)/2;
+    vname[indent] = $2;
+    for (i in vname) {if (i > indent) {delete vname[i]}}
+        if (length($3) > 0) {
+            vn=""; for (i=0; i<indent; i++) {vn=(vn)(vname[i])("_")}
+            printf("%s%s=\"%s\"\n", vn, $2, $3);
+        }
+    }' | sed 's/_=/+=/g'
+}
+
+#======================================================================================================================
+# Validates the gateway does not conflict with existing Docker networks.
+#======================================================================================================================
+# Globals:
+#   - param_gateway
+# Outputs:
+#   Displays the names of Docker networks with conflicting gateways, if any.
+#======================================================================================================================
+validate_gateway() {
+    [ -z "${param_gateway}" ] && exit
+
+    # list all active networks with the same gateway
+    networks=$(docker network ls --quiet | xargs docker network inspect \
+        --format '{{ .Name }}: Gateway={{range .IPAM.Config}}{{.Gateway}}{{end}}' | 
+        grep "Gateway=${param_gateway}" | awk -F':' '{print $1}')
+
+    # find the configured network name (typically 'synology-pihole_macvlan')
+    yaml=$(parse_yaml "${TEMPLATE_FILE}")
+    network_name=$(echo "${yaml}" | grep "networks__macvlan__name" | awk -F'"' '{print $2}')
+    default_service_name=$(basename "${workdir}")
+    network_name="${network_name:-${default_service_name}_macvlan}"
+
+    # remove network name from the list
+    echo "${networks}" | sed "s/${network_name}//g"
+}
+
+
+#======================================================================================================================
+# Validates parameter settings.
+#======================================================================================================================
+# Globals:
+#   - param_subnet
+#   - param_gateway
+#   - param_subnet
+#   - param_pihole_ip
+#   - param_subnet
+#   - param_host_ip
+#   - param_ip_range
+#   - param_ip_range
+#   - param_mac_address
+#   - param_dns1
+#   - param_dns2
+#   - param_data_path
+# Outputs:
+#   Displays warnings and errors if applicable, terminates on error.
+#======================================================================================================================
 validate_settings() {
-    local INVALID_SETTINGS=""
-    local WARNING_SETTINGS=""
+    invalid_settings=""
+    warning_settings=""
 
     #
     # validate parameters conform to expected value
@@ -360,541 +584,667 @@ validate_settings() {
     # -- IP parameters --
     # Check the subnet first, this is the (L3) network we intend to interface with.
 
-    is_valid_cidr "$PARAM_SUBNET"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid subnet:       ${PARAM_SUBNET}\n"
+    is_valid_cidr "${param_subnet}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid subnet:       ${param_subnet}\n"
 
-    is_valid_ip "$PARAM_GATEWAY"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid gateway:      ${PARAM_GATEWAY}\n"
-    is_cidr_in_subnet "$PARAM_GATEWAY/32" "$PARAM_SUBNET"
-    [ $? == 1 ] && INVALID_SETTINGS+="Gateway address '$PARAM_GATEWAY' is not in subnet: '$PARAM_SUBNET'\n"
+    is_valid_ip "${param_gateway}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid gateway:      ${param_gateway}\n"
+    is_cidr_in_subnet "${param_gateway}/32" "${param_subnet}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Gateway address '${param_gateway}' is not in subnet: \
+        '${param_subnet}'\n"
+    conflicts=$(validate_gateway)
+    conflicts=$(echo "${conflicts}" | sed -z 's/\n/,/g;s/,$/\n/;s/,/, /g;')
+    [ -n "${conflicts}" ] && \
+        warning_settings="${warning_settings}Gateway address '${param_gateway}' has a network conflict: ${conflicts}\n"
 
     # A valid docker network range should be contained by the local subnet.
     # The IP range designates a pool of IP addresses that docker allocates (by default) to containers
     # attached to the docker network.
     # This script defines Pi-hole a static IP address and only requires it be valid in the subnet,
     # the user is free to pass their own valid address outside the range.
-    is_valid_ip "$PARAM_PIHOLE_IP"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid Pi-hole IP:   ${PARAM_PIHOLE_IP}\n"
-    is_cidr_in_subnet "$PARAM_PIHOLE_IP/32" "$PARAM_SUBNET"
-    [ $? == 1 ] && INVALID_SETTINGS+="Pi-hole IP address '$PARAM_PIHOLE_IP' is not valid in subnet '$PARAM_SUBNET\n"
+    is_valid_ip "${param_pihole_ip}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid Pi-hole IP:   ${param_pihole_ip}\n"
+    is_cidr_in_subnet "${param_pihole_ip}/32" "${param_subnet}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Pi-hole IP address '${param_pihole_ip}' is not valid in subnet '${param_subnet}\n"
 
-    is_valid_ip "$PARAM_HOST_IP"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid Host IP:   ${PARAM_HOST_IP}\n"
-    is_cidr_in_subnet "$PARAM_HOST_IP/32" "$PARAM_SUBNET"
-    [ $? == 1 ] && INVALID_SETTINGS+="Host IP address '$PARAM_HOST_IP' is not valid in subnet '$PARAM_SUBNET\n"
+    is_valid_ip "${param_host_ip}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid Host IP:   ${param_host_ip}\n"
+    is_cidr_in_subnet "${param_host_ip}/32" "${param_subnet}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Host IP address '${param_host_ip}' is not valid in subnet '${param_subnet}'\n"
 
-    is_valid_cidr "$PARAM_IP_RANGE"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid IP range:     ${PARAM_IP_RANGE}\n"
-    is_cidr_in_subnet "$PARAM_IP_RANGE" "$PARAM_SUBNET"
-    [ $? == 1 ] && INVALID_SETTINGS+="Docker network IP address range is not in subnet '$PARAM_SUBNET'\n"
+    is_valid_cidr "${param_ip_range}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid IP range:     ${param_ip_range}\n"
+    is_cidr_in_subnet "${param_ip_range}" "${param_subnet}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Docker network IP address range is not in subnet '${param_subnet}'\n"
 
-    is_ip_in_range "$PARAM_PIHOLE_IP" "$PARAM_IP_RANGE"
-    [ $? == 1 ] && WARNING_SETTINGS+="IP '$PARAM_PIHOLE_IP' not in docker network range '$PARAM_IP_RANGE'\n"
+    is_ip_in_range "${param_pihole_ip}" "${param_ip_range}"
+    [ $? = 1 ] && warning_settings="${warning_settings}IP '${param_pihole_ip}' not in Docker network range '${param_ip_range}'\n"
     
-    is_valid_mac_address "$PARAM_MAC_ADDRESS"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid MAC address:  ${PARAM_MAC_ADDRESS}\n"
+    is_valid_mac_address "${param_mac_address}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid MAC address:  ${param_mac_address}\n"
 
-    is_valid_ip "$PARAM_DNS1"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid DNS1:         ${PARAM_DNS1}\n"
+    is_valid_ip "${param_dns1}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid DNS1:         ${param_dns1}\n"
 
-    is_valid_ip "$PARAM_DNS2"
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid DNS2:         ${PARAM_DNS2}\n"
+    is_valid_ip "${param_dns2}"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid DNS2:         ${param_dns2}\n"
 
     validate_provided_path
-    [ $? == 1 ] && INVALID_SETTINGS+="Invalid data path:    ${PARAM_DATA_PATH}\n"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid data path:    ${param_data_path}\n"
 
-    if [ "$INVALID_SETTINGS" ] ; then
-        log "$INVALID_SETTINGS"
-        terminate "Invalid parameters"
-    elif [ "$WARNING_SETTINGS" ] ; then
-        log "$WARNING_SETTINGS"
-    fi
+    [ -n "${invalid_settings}" ] && log "${invalid_settings}" && terminate "Invalid parameters"
+    [ -n "${warning_settings}" ] && log "WARNING: ${warning_settings}"
 }
 
-# Validates current versions for DSM, Docker, and Docker Compose
+#======================================================================================================================
+# Validates availability of the current versions for DSM, Docker, and Docker Compose. The function fails if the 
+# detected version of DSM is not supported, or if either Docker Community Engine or Docker Compose cannot be found. The
+# script can only upgrade an existing Docker installation, typically installed via a Synology package.
+#======================================================================================================================
+# Globals:
+#   - dsm_major_version
+#   - docker_version
+#   - compose_version
+# Outputs:
+#   Exits with a non-zero exit code if the DSM version is not supported, or if the Docker binaries cannot be found.
+#======================================================================================================================
 validate_host_version() {
     # Test if host is DSM 6, exit otherwise
-    if [ "$DSM_MAJOR_VERSION" != "$DSM_SUPPORTED_VERSION" ] ; then
+    if [ "${dsm_major_version}" != "${DSM_SUPPORTED_VERSION}" ] ; then
         terminate "This script supports DSM 6.x only, use --force to override"
     fi
 
     # Test Docker version is present, exit otherwise
-    if [ -z "$DOCKER_VERSION" ] ; then
+    if [ -z "${docker_version}" ] ; then
         terminate "Could not confirm Docker availability, use --force to override"
     fi
 
     # Test Docker Compose version is present, exit otherwise
-    if [ -z "$COMPOSE_VERSION" ] ; then
+    if [ -z "${compose_version}" ] ; then
         terminate "Could not confirm Docker Compose availability, use --force to override"
     fi
 }
 
 
-#======================================================================================================================
+#=======================================================================================================================
 # Workflow Functions
-#======================================================================================================================
+#=======================================================================================================================
 
-# Detects current versions for DSM, Docker, Docker Compose, and Pi-hole
+#======================================================================================================================
+# Detects the current versions for DSM, Docker, Docker Compose. It validates compatibility too, unless in force mode.
+#======================================================================================================================
+# Globals:
+#   - dsm_major_version
+#   - docker_version
+#   - compose_version
+#   - force
+# Outputs:
+#   Exits with a non-zero exit code if the DSM version is not supported, or if the Docker binaries cannot be found.
+#======================================================================================================================
 detect_host_versions() {
     print_status "Validating DSM, Docker, and Docker Compose versions on host"
 
     # Detect current DSM version
-    DSM_VERSION=$(cat /etc.defaults/VERSION 2> /dev/null | grep '^productversion' | cut -d'=' -f2 | sed "s/\"//g")
-    DSM_MAJOR_VERSION=$(cat /etc.defaults/VERSION 2> /dev/null | grep '^majorversion' | cut -d'=' -f2 | sed "s/\"//g")
-    DSM_BUILD=$(cat /etc.defaults/VERSION 2> /dev/null | grep '^buildnumber' | cut -d'=' -f2 | sed "s/\"//g")
+    dsm_version='Unknown'
+    file='/etc.defaults/VERSION'
+    [ -f "${file}" ] && dsm_version=$(grep '^productversion' < "${file}"  | cut -d'=' -f2 | sed "s/\"//g") && \
+        dsm_major_version=$(grep '^majorversion' < "${file}"  | cut -d'=' -f2 | sed "s/\"//g")
 
     # Detect current Docker version
-    DOCKER_VERSION=$(docker -v 2>/dev/null | egrep -o "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
+    docker_version=$(docker -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
 
     # Detect current Docker Compose version
-    COMPOSE_VERSION=$(docker-compose -v 2>/dev/null | egrep -o "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
+    compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
 
-    log "Current DSM: ${DSM_VERSION:-Unknown}"
-    log "Current Docker: ${DOCKER_VERSION:-Unknown}"
-    log "Current Docker Compose: ${COMPOSE_VERSION:-Unknown}"
-    if [ "$FORCE" != 'true' ] ; then
+    log "Current DSM:               ${dsm_version:-Unknown}"
+    log "Current Docker:            ${docker_version:-Unknown}"
+    log "Current Docker Compose:    ${compose_version:-Unknown}"
+    if [ "${force}" != 'true' ] ; then
         validate_host_version
     fi
 }
 
-# Defines current and target Pi-hole version
+#======================================================================================================================
+# Defines the current and target version of Pi-hole. Exits if the installed version is already the latest version
+# available, unless in force mode. The FTL release is considered as the leading release.
+#======================================================================================================================
+# Globals:
+#   - pihole_version
+#   - target_pihole_version
+#   - force
+# Outputs:
+#   Exits with a non-zero exit code if Pi-hole is already on the latest version.
+#======================================================================================================================
 define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
     # Detect current Pi-hole version (should comply with 'version.release.modification')
     # Repository has stated FTL is the leading developement release version listed as latest.
-    PIHOLE_VERSION=$(docker exec "$PIHOLE_CONTAINER" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
+    pihole_version=$(docker exec "${param_pihole_hostname}" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
         | cut -c2-)
-    is_valid_version "$PIHOLE_VERSION"
-    [ $? == 1 ] && PIHOLE_VERSION=''
+    is_valid_version "${pihole_version}" || pihole_version=''
 
-    log "Current Pi-hole: ${PIHOLE_VERSION:-Unavailable}"
+    log "Current Pi-hole:           ${pihole_version:-Unavailable}"
 
     detect_available_versions
 
-    log "Target Pi-hole version: ${TARGET_PIHOLE_VERSION:-Unknown}"
+    log "Target Pi-hole version:    ${target_pihole_version:-Unknown}"
 
-    if [ "$FORCE" != 'true' ] ; then
+    if [ "${force}" != 'true' ] ; then
         # Confirm update is necessary
-        if [ "$PIHOLE_VERSION" = "$TARGET_PIHOLE_VERSION" ] ; then
+        if [ "${pihole_version}" = "${target_pihole_version}" ] ; then
             terminate "Already on latest version of Pi-hole"
         fi
     fi
 }
 
-# Initialize network and Pi-hole settings
+#======================================================================================================================
+# Initializes the network and Pi-hole settings.
+#======================================================================================================================
+# Globals:
+#   - param_interface
+#   - param_subnet
+#   - param_gateway
+#   - param_host_ip
+#   - param_vlan_name
+#   - param_mac_address
+#   - param_pihole_ip
+#   - param_ip_range
+#   - param_domain_name
+#   - param_pihole_hostname
+#   - param_timezone
+#   - param_dns1
+#   - param_dns2
+#   - param_data_path
+#   - param_webpassword
+# Outputs:
+#   Displays settings.
+#======================================================================================================================
 init_settings() {
     print_status "Initializing network and Pi-hole settings"
     init_auto_detected_values
     init_generated_values
     validate_settings
 
-    log "Interface:                 $PARAM_INTERFACE"
-    log "Subnet:                    $PARAM_SUBNET"
-    log "Gateway:                   $PARAM_GATEWAY"
-    log "Host IP address:           $PARAM_HOST_IP"
-    log "VLAN:                      $PARAM_VLAN_NAME"
-    log "Pi-hole MAC address:       $PARAM_MAC_ADDRESS"
-    log "Pi-hole IP address:        $PARAM_PIHOLE_IP"
-    log "Docker network IP range:   $PARAM_IP_RANGE"
-    log "Domain name:               $PARAM_DOMAIN_NAME"
-    log "Hostname:                  $PARAM_PIHOLE_HOSTNAME"
-    log "Timezone:                  $PARAM_TIMEZONE"
-    log "DNS1:                      $PARAM_DNS1"
-    log "DNS2:                      $PARAM_DNS2"
-    log "Data path:                 $PARAM_DATA_PATH"
-    if [ -z "$PARAM_WEBPASSWORD" ] ; then 
-        log "Web password: (not set)"
+    log "Interface:                 ${param_interface}"
+    log "Subnet:                    ${param_subnet}"
+    log "Gateway:                   ${param_gateway}"
+    log "Host IP address:           ${param_host_ip}"
+    log "VLAN:                      ${param_vlan_name}"
+    log "Pi-hole MAC address:       ${param_mac_address}"
+    log "Pi-hole IP address:        ${param_pihole_ip}"
+    log "Docker network IP range:   ${param_ip_range}"
+    log "Domain name:               ${param_domain_name}"
+    log "Hostname:                  ${param_pihole_hostname}"
+    log "Timezone:                  ${param_timezone}"
+    log "DNS1:                      ${param_dns1}"
+    log "DNS2:                      ${param_dns2}"
+    log "Data path:                 ${param_data_path}"
+    if [ -z "${param_webpassword}" ] ; then 
+        log "Web password:              (not set)"
     else
-        log "Web password: *****"
+        log "Web password:              *****"
     fi
-
 }
 
-# Ask user to confirm operation
+#======================================================================================================================
+# Asks the user to confirm the operation, unless in force mode.
+#======================================================================================================================
+# Outputs:
+#   Exits with a zero error code if the user does not confirm the operation.
+#======================================================================================================================
 confirm_operation() {
-    if [ "$FORCE" != 'true' ] ; then
+    if [ "${force}" != 'true' ] ; then
         echo
         echo "WARNING! This will install or update Pi-hole as Docker container on your Synology"
         echo
-        read -p "Are you sure you want to continue? [y/N] " CONFIRMATION
+  
+        while true; do
+            printf "Are you sure you want to continue? [y/N] "
+            read -r yn
+            yn=$(echo "${yn}" | tr '[:upper:]' '[:lower:]')
 
-        if [ "$CONFIRMATION" != 'y' ] && [ "$CONFIRMATION" != 'Y' ] ; then
-            exit
-        fi 
+            case "${yn}" in
+                y | yes )     break;;
+                n | no | "" ) exit;;
+                * )           echo "Please answer y(es) or n(o)";;
+            esac
+        done
     fi
 }
 
-# Generates a Docker compose file with substituted variables
+#======================================================================================================================
+# Generates a Docker compose file with substituted variables using a template.
+#======================================================================================================================
+# Globals:
+#   - workdir
+#   - param_interface
+#   - param_subnet
+#   - param_gateway
+#   - param_ip_range
+#   - param_pihole_hostname
+#   - param_timezone
+#   - param_webpassword
+#   - param_domain_name
+#   - param_dns1
+#   - param_dns2
+#   - param_pihole_ip
+#   - param_data_path
+#   - param_mac_address
+#   - param_pihole_hostname
+# Outputs:
+#   A generated Docker Compose file in the working directory.
+#======================================================================================================================
+# shellcheck disable=SC2016
 create_docker_compose_file() {
     print_status "Generating Docker Compose file"
 
     # create generated compose file
-    if [ -f "$WORKDIR/$TEMPLATE_FILE" ] ; then
-        cp "$WORKDIR/$TEMPLATE_FILE" "$WORKDIR/$COMPOSE_FILE" > /dev/null 2>&1
+    if [ -f "${workdir}/${TEMPLATE_FILE}" ] ; then
+        cp "${workdir}/${TEMPLATE_FILE}" "${workdir}/${COMPOSE_FILE}" > /dev/null 2>&1
     else
-        terminate "File '$COMPOSE_FILE' unavailable"
+        terminate "File '${COMPOSE_FILE}' unavailable"
     fi
 
     # substitute variables
-    safe_replace_in_file '${INTERFACE}' "$PARAM_INTERFACE" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${SUBNET}' "$PARAM_SUBNET" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${GATEWAY}' "$PARAM_GATEWAY" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${IP_RANGE}' "$PARAM_IP_RANGE" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${PIHOLE_HOSTNAME}' "$PARAM_PIHOLE_HOSTNAME" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${TIMEZONE}' "$PARAM_TIMEZONE" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${WEBPASSWORD}' "$PARAM_WEBPASSWORD" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${DOMAIN_NAME}' "$PARAM_DOMAIN_NAME" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${DNS1}' "$PARAM_DNS1" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${DNS2}' "$PARAM_DNS2" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${PIHOLE_IP}' "$PARAM_PIHOLE_IP" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${DATA_PATH}' "$PARAM_DATA_PATH" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${MAC_ADDRESS}' "$PARAM_MAC_ADDRESS" "$WORKDIR/$COMPOSE_FILE"
-    safe_replace_in_file '${PIHOLE_HOSTNAME}' "$PARAM_PIHOLE_HOSTNAME" "$WORKDIR/$COMPOSE_FILE"
+    safe_replace_in_file '${INTERFACE}' "${param_interface}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${SUBNET}' "${param_subnet}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${GATEWAY}' "${param_gateway}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${IP_RANGE}' "${param_ip_range}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${PIHOLE_HOSTNAME}' "${param_pihole_hostname}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${TIMEZONE}' "${param_timezone}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${WEBPASSWORD}' "${param_webpassword}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${DOMAIN_NAME}' "${param_domain_name}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${DNS1}' "${param_dns1}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${DNS2}' "${param_dns2}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${PIHOLE_IP}' "${param_pihole_ip}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${DATA_PATH}' "${param_data_path}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${MAC_ADDRESS}' "${param_mac_address}" "${workdir}/${COMPOSE_FILE}"
+    safe_replace_in_file '${PIHOLE_HOSTNAME}' "${param_pihole_hostname}" "${workdir}/${COMPOSE_FILE}"
 }
 
-# Test Docker service availability by invoking synoservicectl
+#======================================================================================================================
+# Invokes synoservicectl to test the availability of the Docker daemon.
+#======================================================================================================================
+# Globals:
+#   - log_prefix
+# Outputs:
+#   Exits with a non-zero exit code if the Docker service is not running, or a timeout occurred.
+#======================================================================================================================
 execute_wait_for_docker() {
     print_status "Testing Docker service availability"
 
-    local DOCKER='false'
-    local I=1
-    local SPINNER="/-\|"
-    local START=$(date +%s)
-    local ELAPSED=0
+    docker='false'
+    i=0
+    start=$(date +%s)
+    elapsed=0
 
-    [ -z "$LOG_PREFIX" ] && echo -n 'Testing...  '
+    [ -z "${log_prefix}" ] && printf 'Testing...  '
 
-    while [ "$ELAPSED" -le "$NW_TIMEOUT" ] ; do
+    while [ "${elapsed}" -le "${NW_TIMEOUT}" ] ; do
         # validate Docker service is running
-        $(synoservicectl --status "$SYNO_DOCKER_SERV_NAME" | grep -q running)
-        if [ "$?" -eq 0 ] ; then
-            DOCKER='true'
+        if synoservicectl --status "${SYNO_DOCKER_SERV_NAME}" | grep -q 'running'; then
+            docker='true'
             break
         else
-            [ -z "$LOG_PREFIX" ] && printf "\b${SPINNER:I++%${#SPINNER}:1}"  # print spinner
+            i=$(((i + 1) % 4))
+            spinner=$(echo '/-\|' | cut -c "$((i + 1))")
+            [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
             sleep 0.5
         fi
-        CURRENT=$(date +%s)
-        ELAPSED=$(($CURRENT - $START))
+        current=$(date +%s)
+        elapsed=$((current - start))
     done
 
-    if [ "$DOCKER" == 'true' ] ; then
-        [ -z "$LOG_PREFIX" ] && printf "\b "
+    if [ "${docker}" = 'true' ] ; then
+        [ -z "${log_prefix}" ] && printf "\b "
         log "Docker service detected"
     else
-        [ -z "$LOG_PREFIX" ] && printf "\b \n"
+        [ -z "${log_prefix}" ] && printf "\b \n"
         terminate "Timeout waiting for Docker availability"
     fi
 }
 
-# Test network service availability by checking status of interface
+#======================================================================================================================
+# Tests availability of the network service by checking the status of network interface.
+#======================================================================================================================
+# Globals:
+#   - log_prefix
+# Outputs:
+#   Exits with a non-zero exit code if the network service is not available, or a timeout occurred.
+#======================================================================================================================
 execute_wait_for_network() {
     print_status "Testing network service availability"
 
-    local INTERFACE="$PARAM_INTERFACE"
-    local NETWORK='false'
-    local I=1
-    local SPINNER="/-\|"
-    local START=$(date +%s)
-    local ELAPSED=0
+    interface="${param_interface}"
+    network='false'
+    i=0
+    start=$(date +%s)
+    elapsed=0
 
-    [ -z "$LOG_PREFIX" ] && echo -n 'Testing...  '
+    [ -z "${log_prefix}" ] && printf 'Testing...  '
 
-    while [ "$ELAPSED" -le "$NW_TIMEOUT" ] ; do
+    while [ "$elapsed" -le "${NW_TIMEOUT}" ] ; do
         # try to identify main interface if not provided as parameter
         # Note: this could fail as the the network service might not be available yet
-        if [ -z "$INTERFACE" ] ; then
-            INTERFACE=$(ip route list | grep "default" | awk '{print $5}')
+        if [ -z "${interface}" ] ; then
+            interface=$(ip route list | grep "default" | awk '{print $5}')
         fi
 
         # validate interface state is UP (the variable might be undefined)
-        $(ip a s "$INTERFACE" | grep -q 'state UP')
-        if [ ! -z "$INTERFACE" ] && [ "$?" -eq 0 ] ; then
-            NETWORK='true'
+        ip a s "${interface}" | grep -q 'state UP'
+        result="$?"
+        if [ -n "${interface}" ] && [ "${result}" -eq 0 ] ; then
+            network='true'
             break
         else
-            [ -z "$LOG_PREFIX" ] && printf "\b${SPINNER:I++%${#SPINNER}:1}"  # print spinner
+            i=$(((i + 1) % 4))
+            spinner=$(echo '/-\|' | cut -c "$((i + 1))")
+            [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
             sleep 0.5
         fi
-        CURRENT=$(date +%s)
-        ELAPSED=$(($CURRENT - $START))
+        current=$(date +%s)
+        elapsed=$((current - start))
     done
 
-    if [ "$NETWORK" == 'true' ] ; then
-        [ -z "$LOG_PREFIX" ] && printf "\b "
+    if [ "${network}" = 'true' ] ; then
+        [ -z "${log_prefix}" ] && printf "\b "
         log "Network service detected"
     else
-        [ -z "$LOG_PREFIX" ] && printf "\b \n"
+        [ -z "${log_prefix}" ] && printf "\b \n"
         terminate "Timeout waiting for network availability"
     fi
 }
 
-# Create macvlan interface
+#======================================================================================================================
+# Creates a macvlan interface for the given interface. Is assigns the vlan name, host IP address, and Pi-hole IP 
+# address.
+#======================================================================================================================
+# Globals:
+#   - param_vlan_name
+#   - param_interface
+#   - param_host_ip
+#   - param_pihole_ip
+# Outputs:
+#   Exits with a non-zero exit code if the macvlan network could not be created or reached.
+#======================================================================================================================
 execute_create_macvlan() {
     print_status "Creating interface to bridge host and docker network"
 
-    local STATUS=""
+    status=''
 
     # (re-)create macvlan bridge attached to the network interface
-    STATUS=$(ip link | grep "$PARAM_VLAN_NAME")
-    if [ -z "$STATUS" ] ; then
-        log "Removing existing link '$PARAM_VLAN_NAME'"
-        ip link set "$PARAM_VLAN_NAME" down > /dev/null 2>&1
-        ip link delete "$PARAM_VLAN_NAME" > /dev/null 2>&1
+    status=$(ip link | grep "${param_vlan_name}")
+    if [ -z "$status" ] ; then
+        log "Removing existing link '${param_vlan_name}'"
+        ip link set "${param_vlan_name}" down > /dev/null 2>&1
+        ip link delete "${param_vlan_name}" > /dev/null 2>&1
     fi
-    log "Adding macvlan interface '$PARAM_VLAN_NAME' "
-    ip link add "$PARAM_VLAN_NAME" link "$PARAM_INTERFACE" type macvlan mode bridge
+    log "Adding macvlan interface '${param_vlan_name}' "
+    ip link add "${param_vlan_name}" link "${param_interface}" type macvlan mode bridge
     
     # assign host address to macvlan
-    STATUS=$(ip addr | grep "$PARAM_VLAN_NAME")
-    if [ -z "$STATUS" ] ; then
-        log "Assign IP address '$PARAM_HOST_IP' to '$PARAM_VLAN_NAME'"
-        ip addr add "$PARAM_HOST_IP/32" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
+    status=$(ip addr | grep "${param_vlan_name}")
+    if [ -z "${status}" ] ; then
+        log "Assign IP address '${param_host_ip}' to '${param_vlan_name}'"
+        ip addr add "${param_host_ip}/32" dev "${param_vlan_name}" > /dev/null 2>&1
     else # this should never happen because link is deleted above if exists
-        log "Updating current IP address of '$PARAM_VLAN_NAME' to '$PARAM_HOST_IP'"
-        ip addr change "$PARAM_HOST_IP/32" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
+        log "Updating current IP address of '${param_vlan_name}' to '${param_host_ip}'"
+        ip addr change "${param_host_ip}/32" dev "${param_vlan_name}" > /dev/null 2>&1
     fi
 
     # bring macvlan interface up
-    log "Bringing up interface '$PARAM_VLAN_NAME'"
-    ip link set "$PARAM_VLAN_NAME" up > /dev/null 2>&1
+    log "Bringing up interface '${param_vlan_name}'"
+    ip link set "${param_vlan_name}" up > /dev/null 2>&1
 
     # add route to Pi-hole IP on macvlan interface
-    STATUS=$(ip route | grep "$PARAM_VLAN_NAME" | grep "$PARAM_PIHOLE_IP")
-    if [ -z "$STATUS" ] ; then
-        log "Adding static route from '$PARAM_PIHOLE_IP/32' to '$PARAM_VLAN_NAME'"
-        ip route add "$PARAM_PIHOLE_IP/32" dev "$PARAM_VLAN_NAME" > /dev/null 2>&1
+    status=$(ip route | grep "${param_vlan_name}" | grep "${param_pihole_ip}")
+    if [ -z "${status}" ] ; then
+        log "Adding static route from '${param_pihole_ip}/32' to '${param_vlan_name}'"
+        ip route add "${param_pihole_ip}/32" dev "${param_vlan_name}" > /dev/null 2>&1
     fi
 
     # check virtual adapter status
-    STATUS=$(ip route | grep "$PARAM_VLAN_NAME")
-    if [ -z "$STATUS" ] ; then
+    status=$(ip route | grep "${param_vlan_name}")
+    if [ -z "${status}" ] ; then
         terminate "Could not create macvlan interface"
     fi
 }
 
-# Create Pi-hole Docker network and container
+#======================================================================================================================
+# Creates the Pi-hole Docker network and Docker container using a (generated) Docker compose file.
+#======================================================================================================================
+# Globals:
+#   - workdir
+# Outputs:
+#   Exits with a non-zero exit code if the Docker network and/or container could not be created.
+#======================================================================================================================
 execute_create_container() {
     print_status "Creating Pi-hole container"
 
-    local COMPOSE_LOG COMPOSE_CODE
-
     # pull latest image
-    COMPOSE_LOG=$(docker-compose -f "$WORKDIR/$COMPOSE_FILE" pull 2>&1)
-    COMPOSE_CODE="$?"
-
-    if [ "$COMPOSE_CODE" -ne 0 ] ; then
-        log "$COMPOSE_LOG"
+    if ! compose_log=$(docker-compose -f "${workdir}/$COMPOSE_FILE" pull 2>&1); then
+        log "${compose_log}"
         terminate "Could not download latest Docker image"
     fi
 
     # start network and container in daemon mode
-    COMPOSE_LOG=$(docker-compose -f "$WORKDIR/$COMPOSE_FILE" up -d 2>&1)
-    COMPOSE_CODE="$?"
-
-    if [ "$COMPOSE_CODE" -ne 0 ] ; then
-        log "$COMPOSE_LOG"
+    if ! compose_log=$(docker-compose -f "${workdir}/$COMPOSE_FILE" up -d 2>&1); then
+        log "${compose_log}"
         terminate "Could not create Docker network and/or container"
     fi
 }
 
-# Test Pi-hole availability by testing connection to admin portal
+#======================================================================================================================
+# Tests Pi-hole availability by establishing a connection to the admin portal.
+#======================================================================================================================
+# Globals:
+#   - param_pihole_ip
+#   - log_prefix
+# Outputs:
+#   Exits with a non-zero exit code if the Pi-hole portal could not be reached, or if a timeout occurred.
+#======================================================================================================================
 execute_test_pihole() {
     print_status "Testing Pi-hole availability"
 
-    local URL="http://$PARAM_PIHOLE_IP/admin/"
-    local CODE=0
-    local I=1
-    local SPINNER="/-\|"
-    local START=$(date +%s)
-    local ELAPSED=0
+    url="http://${param_pihole_ip}/admin/"
+    code=0
+    i=0
+    start=$(date +%s)
+    elapsed=0
 
-    [ -z "$LOG_PREFIX" ] && echo -n 'Testing...  '
-    while [ "$ELAPSED" -le "$PI_TIMEOUT" ] ; do
-        CODE=$(curl -o /dev/null -I -L -s -w "%{http_code}" "$URL")
-        if [ "$CODE" == 200 ] ; then
+    [ -z "${log_prefix}" ] && printf 'Testing...  '
+    while [ "$elapsed" -le "$PI_TIMEOUT" ] ; do
+        code=$(curl -o /dev/null -I -L -s -w "%{http_code}" "${url}")
+        if [ "$code" = 200 ] ; then
             break
         else
-            [ -z "$LOG_PREFIX" ] && printf "\b${SPINNER:I++%${#SPINNER}:1}"  # print spinner
+            i=$(((i + 1) % 4))
+            spinner=$(echo '/-\|' | cut -c "$((i + 1))")
+            [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
             sleep 0.5
         fi
-        CURRENT=$(date +%s)
-        ELAPSED=$(($CURRENT - $START))
+        current=$(date +%s)
+        elapsed=$((current - start))
     done
 
-    if [ "$CODE" == 200 ] ; then
-        [ -z "$LOG_PREFIX" ] && printf "\b "
-        log "Successfully connected to Pi-hole portal ($URL)"
+    if [ "${code}" = 200 ] ; then
+        [ -z "${log_prefix}" ] && printf "\b "
+        log "Successfully connected to Pi-hole portal (${url})"
     else
-        [ -z "$LOG_PREFIX" ] && printf "\b \n"
+        [ -z "${log_prefix}" ] && printf "\b \n"
         terminate "Timeout connecting to Pi-hole"
     fi
 }
 
-# Create Pi-hole password
+#======================================================================================================================
+# Assigns the Pi-hole password if applicable, skipped in force mode.
+#======================================================================================================================
+# Globals:
+#   - param_webpassword
+# Outputs:
+#   Assigned Pi-hole password if applicable.
+#======================================================================================================================
 execute_create_password() {
     print_status "Setting Pi-hole password"
     
-    if [ -z "$PARAM_WEBPASSWORD" ] && [ "$FORCE" != 'true' ] ; then
-        docker exec -it pihole pihole -a -p
+    if [ -z "${param_webpassword}" ] && [ "${force}" != 'true' ] ; then
+        docker exec -it "${param_pihole_hostname}" pihole -a -p
     else
         log "Skipped in forced mode"
     fi
 }
 
-#======================================================================================================================
+#=======================================================================================================================
 # Main Script
+#=======================================================================================================================
+
 #======================================================================================================================
+# Entrypoint for the script.
+#======================================================================================================================
+main() {
+    # Show header
+    show_header
 
-# Show header
-show_header
+    # Test if script has root privileges, exit otherwise
+    current_id=$(id -u)
+    if [ "${current_id}" -ne 0 ]; then 
+        usage
+        terminate "You need to be root to run this script"
+    fi
 
-# Test if script has root privileges, exit otherwise
-if [[ $(id -u) -ne 0 ]]; then 
-    usage
-    terminate "You need to be root to run this script"
-fi
+    # Process and validate command-line arguments
+    while [ "$1" != "" ]; do
+        case "$1" in
+            -f | --force )
+                force='true'
+                ;;
+            -l | --log )
+                log_prefix="[$(date --rfc-3339=seconds)] [SYNO_PIHOLE] "
+                shift
+                param_log_file="$1"
+                is_valid_log_file || terminate "Invalid log file"
+                ;;
+            -h | --help )
+                usage
+                exit
+                ;;
+            -i | --ip )
+                shift
+                param_pihole_ip="$1"
+                is_valid_ip "${param_pihole_ip}" || terminate "Invalid IP address"
+                ;;
+            -s | --subnet )
+                shift
+                param_subnet="$1"
+                is_valid_cidr "${param_subnet}" || terminate "Invalid subnet"
+                ;;
+            -g | --gateway )
+                shift
+                param_gateway="$1"
+                is_valid_ip "${param_gateway}" || terminate "Invalid gateway"
+                ;;
+            -r | --range )
+                shift
+                param_ip_range="$1"
+                is_valid_cidr "${param_ip_range}" || terminate "Invalid IP range"
+                ;;
+            -v | --vlan )
+                shift
+                param_vlan_name="$1"
+                ;;
+            -n | --interface )
+                shift
+                param_interface="$1"
+                ;;
+            -m | --mac )
+                shift
+                param_mac_address="$1"
+                is_valid_mac_address "${param_mac_address}" || terminate "Invalid unicast MAC address"
+                ;;
+            -d | --domain )
+                shift
+                param_domain_name="$1"
+                ;;
+            -H | --host )
+                shift
+                param_pihole_hostname="$1"
+                ;;
+            -t | --timezone )
+                shift
+                param_timezone="$1"
+                ;;
+            --DNS1 )
+                shift
+                param_dns1="$1"
+                is_valid_ip "${param_dns1}" || terminate "Invalid DNS"
+                ;;
+            --DNS2 )
+                shift
+                param_dns2="$1"
+                is_valid_ip "${param_dns2}" || terminate "Invalid DNS"
+                ;;
+            --path )
+                shift
+                param_data_path="$1"
+                validate_provided_path || terminate "Invalid data path"
+                ;;
+            -p | --password )
+                shift
+                param_webpassword="$1"
+                ;;
+            --host-ip )
+                shift
+                param_host_ip="$1"
+                ;;
+            install | network | update  )
+                command="$1"
+                ;;
+            * )
+                usage
+                terminate "Unrecognized parameter ($1)"
+        esac
+        shift
+    done
 
-# Process and validate command-line arguments
-while [ "$1" != "" ]; do
-    case "$1" in
-        -f | --force )
-            FORCE='true'
+    # Execute workflows
+    case "${command}" in
+        install )
+            total_steps=8
+            init_env
+            detect_host_versions
+            define_pihole_versions
+            init_settings
+            confirm_operation
+            create_docker_compose_file
+            execute_create_macvlan
+            execute_create_container
+            execute_test_pihole
+            execute_create_password
             ;;
-        -l | --log )
-            LOG_PREFIX="[$(date --rfc-3339=seconds)] [SYNO_PIHOLE] "
-            shift
-            PARAM_LOG_FILE="$1"
-            is_valid_log_file
-            [ $? == 1 ] && terminate "Invalid log file"
+        network )
+            total_steps=5
+            init_env
+            execute_wait_for_docker
+            detect_host_versions
+            execute_wait_for_network
+            init_settings
+            confirm_operation
+            execute_create_macvlan
             ;;
-        -h | --help )
-            usage
-            exit
-            ;;
-        -i | --ip )
-            shift
-            PARAM_PIHOLE_IP="$1"
-            is_valid_ip "$PARAM_PIHOLE_IP"
-            [ $? == 1 ] && terminate "Invalid IP address"
-            ;;
-        -s | --subnet )
-            shift
-            PARAM_SUBNET="$1"
-            is_valid_cidr "$PARAM_SUBNET"
-            [ $? == 1 ] && terminate "Invalid subnet"
-            ;;
-        -g | --gateway )
-            shift
-            PARAM_GATEWAY="$1"
-            is_valid_ip "$PARAM_GATEWAY"
-            [ $? == 1 ] && terminate "Invalid gateway"
-            ;;
-        -r | --range )
-            shift
-            PARAM_IP_RANGE="$1"
-            is_valid_cidr "$PARAM_IP_RANGE"
-            [ $? == 1 ] && terminate "Invalid IP range"
-            ;;
-        -v | --vlan )
-            shift
-            PARAM_VLAN_NAME="$1"
-            ;;
-        -n | --interface )
-            shift
-            PARAM_INTERFACE="$1"
-            ;;
-        -m | --mac )
-            shift
-            PARAM_MAC_ADDRESS="$1"
-            is_valid_mac_address "$PARAM_MAC_ADDRESS"
-            [ $? == 1 ] && terminate "Invalid unicast MAC address"
-            ;;
-        -d | --domain )
-            shift
-            PARAM_DOMAIN_NAME="$1"
-            ;;
-        -H | --host )
-            shift
-            PARAM_PIHOLE_HOSTNAME="$1"
-            ;;
-        -t | --timezone )
-            shift
-            PARAM_TIMEZONE="$1"
-            ;;
-        --DNS1 )
-            shift
-            PARAM_DNS1="$1"
-            is_valid_ip "$PARAM_DNS1"
-            [ $? == 1 ] && terminate "Invalid DNS"
-            ;;
-        --DNS2 )
-            shift
-            PARAM_DNS2="$1"
-            is_valid_ip "$PARAM_DNS2"
-            [ $? == 1 ] && terminate "Invalid DNS"
-            ;;
-        --path )
-            shift
-            PARAM_DATA_PATH="$1"
-            validate_provided_path
-            [ $? == 1 ] && terminate "Invalid data path"
-            ;;
-        -p | --password )
-            shift
-            PARAM_WEBPASSWORD="$1"
-            ;;
-        --host-ip )
-            shift
-            PARAM_HOST_IP="$1"
-            ;;
-        install | network | update  )
-            COMMAND="$1"
+        update )
+            total_steps=4
+            detect_host_versions
+            define_pihole_versions
+            execute_create_container
+            execute_test_pihole
             ;;
         * )
             usage
-            terminate "Unrecognized parameter ($1)"
+            terminate "No command specified"
     esac
-    shift
-done
 
-# Execute workflows
-case "$COMMAND" in
-    install )
-        TOTAL_STEPS=8
-        init_env
-        detect_host_versions
-        define_pihole_versions
-        init_settings
-        confirm_operation
-        create_docker_compose_file
-        execute_create_macvlan
-        execute_create_container
-        execute_test_pihole
-        execute_create_password
-        ;;
-    network )
-        TOTAL_STEPS=5
-        init_env
-        execute_wait_for_docker
-        detect_host_versions
-        execute_wait_for_network
-        init_settings
-        confirm_operation
-        execute_create_macvlan
-        ;;
-    update )
-        TOTAL_STEPS=4
-        detect_host_versions
-        define_pihole_versions
-        execute_create_container
-        execute_test_pihole
-        ;;
-    * )
-        usage
-        terminate "No command specified"
-esac
+    log "Done."
+}
 
-log "Done."
-
+main "$@"

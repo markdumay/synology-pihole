@@ -2,6 +2,7 @@ version: "2"
 
 networks:
     macvlan:
+        name: synology-pihole_macvlan
         driver: macvlan
         driver_opts:
             parent: ${INTERFACE}
