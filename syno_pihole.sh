@@ -660,7 +660,7 @@ define_pihole_versions() {
 
     # Detect current Pi-hole version (should comply with 'version.release.modification')
     # Repository has stated FTL is the leading developement release version listed as latest.
-    pihole_version=$(docker exec "${PIHOLE_CONTAINER}" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
+    pihole_version=$(docker exec "${param_pihole_hostname}" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
         | cut -c2-)
     is_valid_version "${pihole_version}" || pihole_version=''
 
@@ -1029,7 +1029,7 @@ execute_create_password() {
     print_status "Setting Pi-hole password"
     
     if [ -z "${param_webpassword}" ] && [ "${force}" != 'true' ] ; then
-        docker exec -it pihole pihole -a -p
+        docker exec -it "${param_pihole_hostname}" pihole -a -p
     else
         log "Skipped in forced mode"
     fi
