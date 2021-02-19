@@ -132,8 +132,9 @@ usage() {
 # Outputs:
 #   Writes error message to stderr and optional log file, non-zero exit code.
 #======================================================================================================================
+# shellcheck disable=SC2059
 terminate() {
-    printf "${RED}${BOLD}${log_prefix}%s${NC}\n" "ERROR: $1" 1>&2
+    printf "${RED}${BOLD}${log_prefix}ERROR: $1${NC}\n" 1>&2
     if [ -n "${param_log_file}" ] ; then
         echo "${log_prefix}ERROR: $1" >> "${param_log_file}"
     fi
@@ -164,10 +165,11 @@ print_status() {
 # Outputs:
 #   Writes message to stdout and optional log file.
 #======================================================================================================================
+# shellcheck disable=SC2059
 log() {
-    printf "%s%s\n" "${log_prefix}" "$1"
+    printf "${log_prefix}$1\n"
     if [ -n "${param_log_file}" ] ; then
-        printf "%s%s\n" "${log_prefix}" "$1" >> "${param_log_file}"
+        echo "${log_prefix}$1" >> "${param_log_file}"
     fi
 }
 
@@ -549,7 +551,7 @@ validate_settings() {
     is_valid_ip "${param_host_ip}"
     [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid Host IP:   ${param_host_ip}\n"
     is_cidr_in_subnet "${param_host_ip}/32" "${param_subnet}"
-    [ $? = 1 ] && invalid_settings="${invalid_settings}Host IP address '${param_host_ip}' is not valid in subnet '${param_subnet}\n"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Host IP address '${param_host_ip}' is not valid in subnet '${param_subnet}'\n"
 
     is_valid_cidr "${param_ip_range}"
     [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid IP range:     ${param_ip_range}\n"
@@ -557,7 +559,7 @@ validate_settings() {
     [ $? = 1 ] && invalid_settings="${invalid_settings}Docker network IP address range is not in subnet '${param_subnet}'\n"
 
     is_ip_in_range "${param_pihole_ip}" "${param_ip_range}"
-    [ $? = 1 ] && warning_settings="${invalid_settings}IP '${param_pihole_ip}' not in docker network range '${param_ip_range}'\n"
+    [ $? = 1 ] && warning_settings="${warning_settings}IP '${param_pihole_ip}' not in Docker network range '${param_ip_range}'\n"
     
     is_valid_mac_address "${param_mac_address}"
     [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid MAC address:  ${param_mac_address}\n"
@@ -572,7 +574,7 @@ validate_settings() {
     [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid data path:    ${param_data_path}\n"
 
     [ -n "${invalid_settings}" ] && log "${invalid_settings}" && terminate "Invalid parameters"
-    [ -n "${warning_settings}" ] && log "${warning_settings}"
+    [ -n "${warning_settings}" ] && log "WARNING: ${warning_settings}"
 }
 
 #======================================================================================================================
@@ -635,9 +637,9 @@ detect_host_versions() {
     # Detect current Docker Compose version
     compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
 
-    log "Current DSM: ${dsm_version:-Unknown}"
-    log "Current Docker: ${docker_version:-Unknown}"
-    log "Current Docker Compose: ${compose_version:-Unknown}"
+    log "Current DSM:               ${dsm_version:-Unknown}"
+    log "Current Docker:            ${docker_version:-Unknown}"
+    log "Current Docker Compose:    ${compose_version:-Unknown}"
     if [ "${force}" != 'true' ] ; then
         validate_host_version
     fi
@@ -663,11 +665,11 @@ define_pihole_versions() {
         | cut -c2-)
     is_valid_version "${pihole_version}" || pihole_version=''
 
-    log "Current Pi-hole: ${pihole_version:-Unavailable}"
+    log "Current Pi-hole:           ${pihole_version:-Unavailable}"
 
     detect_available_versions
 
-    log "Target Pi-hole version: ${target_pihole_version:-Unknown}"
+    log "Target Pi-hole version:    ${target_pihole_version:-Unknown}"
 
     if [ "${force}" != 'true' ] ; then
         # Confirm update is necessary
