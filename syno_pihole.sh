@@ -25,7 +25,6 @@ DEFAULT_PIHOLE_VERSION='5.1.2'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
 GITHUB_API_PIHOLE='https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest'
-PIHOLE_CONTAINER='pihole'
 PI_TIMEOUT=120 # timeout to wait for Pi-hole response (in seconds)
 NW_TIMEOUT=600 # timeout to wait for network response (in seconds)
 
