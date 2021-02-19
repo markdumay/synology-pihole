@@ -21,7 +21,7 @@ BOLD='\033[1m' #Bold color
 
 DSM_SUPPORTED_VERSION=6
 SYNO_DOCKER_SERV_NAME=pkgctl-Docker
-DEFAULT_PIHOLE_VERSION='5.1.2'
+DEFAULT_PIHOLE_VERSION='5.7'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
 GITHUB_API_PIHOLE='https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest'
