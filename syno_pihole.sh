@@ -499,6 +499,61 @@ safe_replace_in_file() {
     sed -i "s/${old}/${new}/g" "${file}"
 }
 
+#=======================================================================================================================
+# Parse a YAML file into a flat list of variables.
+#=======================================================================================================================
+# Source: https://gist.github.com/briantjacobs/7753bf850ca5e39be409
+# Arguments:
+#   $1 - YAML file to use as input
+# Outputs:
+#   Writes flat variable list to stdout, returns 1 if not successful
+#=======================================================================================================================
+parse_yaml() {
+    [ ! -f "$1" ] && return 1
+    
+    s='[[:space:]]*'
+    w='[a-zA-Z0-9_]*'
+    fs="$(echo @|tr @ '\034')"
+    sed -ne "s|^\($s\)\($w\)$s:$s\"\(.*\)\"$s\$|\1$fs\2$fs\3|p" 2> /dev/null \
+        -e "s|^\($s\)\($w\)${s}[:-]$s\(.*\)$s\$|\1$fs\2$fs\3|p" "$1" 2> /dev/null |
+    awk -F"$fs" '{
+    indent = length($1)/2;
+    vname[indent] = $2;
+    for (i in vname) {if (i > indent) {delete vname[i]}}
+        if (length($3) > 0) {
+            vn=""; for (i=0; i<indent; i++) {vn=(vn)(vname[i])("_")}
+            printf("%s%s=\"%s\"\n", vn, $2, $3);
+        }
+    }' | sed 's/_=/+=/g'
+}
+
+#======================================================================================================================
+# Validates the gateway does not conflict with existing Docker networks.
+#======================================================================================================================
+# Globals:
+#   - param_gateway
+# Outputs:
+#   Displays the names of Docker networks with conflicting gateways, if any.
+#======================================================================================================================
+validate_gateway() {
+    [ -z "${param_gateway}" ] && exit
+
+    # list all active networks with the same gateway
+    networks=$(docker network ls --quiet | xargs docker network inspect \
+        --format '{{ .Name }}: Gateway={{range .IPAM.Config}}{{.Gateway}}{{end}}' | 
+        grep "Gateway=${param_gateway}" | awk -F':' '{print $1}')
+
+    # find the configured network name (typically 'synology-pihole_macvlan')
+    yaml=$(parse_yaml "${TEMPLATE_FILE}")
+    network_name=$(echo "${yaml}" | grep "networks__macvlan__name" | awk -F'"' '{print $2}')
+    default_service_name=$(basename "${workdir}")
+    network_name="${network_name:-${default_service_name}_macvlan}"
+
+    # remove network name from the list
+    echo "${networks}" | sed "s/${network_name}//g"
+}
+
+
 #======================================================================================================================
 # Validates parameter settings.
 #======================================================================================================================
@@ -535,7 +590,12 @@ validate_settings() {
     is_valid_ip "${param_gateway}"
     [ $? = 1 ] && invalid_settings="${invalid_settings}Invalid gateway:      ${param_gateway}\n"
     is_cidr_in_subnet "${param_gateway}/32" "${param_subnet}"
-    [ $? = 1 ] && invalid_settings="${invalid_settings}Gateway address '${param_gateway}' is not in subnet: '${param_subnet}'\n"
+    [ $? = 1 ] && invalid_settings="${invalid_settings}Gateway address '${param_gateway}' is not in subnet: \
+        '${param_subnet}'\n"
+    conflicts=$(validate_gateway)
+    conflicts=$(echo "${conflicts}" | sed -z 's/\n/,/g;s/,$/\n/;s/,/, /g;')
+    [ -n "${conflicts}" ] && \
+        warning_settings="${warning_settings}Gateway address '${param_gateway}' has a network conflict: ${conflicts}\n"
 
     # A valid docker network range should be contained by the local subnet.
     # The IP range designates a pool of IP addresses that docker allocates (by default) to containers
