@@ -151,7 +151,7 @@ By default, Docker containers are automatically restarted after a system reboot.
     ```
 
 ### Configuration
-The Pi-hole [FAQ][pihole_dns] describes various options on how to configure the Pi-hole DNS server. The Pi-hole administor web interface is available by navigating to `http://ip_address/admin/` (replacing `ip_address` with the correct IP address).
+The Pi-hole [FAQ][pihole_dns] describes various options on how to configure the Pi-hole DNS server. The Pi-hole administrator web interface is available by navigating to `http://ip_address/admin/` (replacing `ip_address` with the correct IP address).
 
 
 ## Contributing
