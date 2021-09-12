@@ -350,7 +350,7 @@ is_cidr_in_subnet() {
 #======================================================================================================================
 detect_available_versions() {
     if [ -z "${target_pihole_version}" ] ; then
-        target_pihole_version=$(curl -s "${GITHUB_API_PIHOLE}" | grep "tag_name" | grep -Eo "v[0-9]+.[0-9]+(.[0-9]+)?")
+        target_pihole_version=$(curl -s "${GITHUB_API_PIHOLE}" | grep "tag_name" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
         target_pihole_version=$(echo "${target_pihole_version}" | sed 's/v//g')
 
         if [ -z "${target_pihole_version}" ] ; then
