@@ -5,7 +5,7 @@
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
 # Date          : September 12th, 2021
-# Version       : 1.0.1
+# Version       : 1.0.2
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -21,7 +21,7 @@ BOLD='\033[1m' #Bold color
 
 DSM_SUPPORTED_VERSION=6
 SYNO_DOCKER_SERV_NAME=pkgctl-Docker
-DEFAULT_PIHOLE_VERSION='5.7'
+DEFAULT_PIHOLE_VERSION='2021.09'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
 GITHUB_API_PIHOLE='https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest'
