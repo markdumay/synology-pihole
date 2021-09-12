@@ -649,9 +649,9 @@ validate_settings() {
 #   Exits with a non-zero exit code if the DSM version is not supported, or if the Docker binaries cannot be found.
 #======================================================================================================================
 validate_host_version() {
-    # Test if host is DSM 6, exit otherwise
-    if [ "${dsm_major_version}" != "${DSM_SUPPORTED_VERSION}" ] ; then
-        terminate "This script supports DSM 6.x only, use --force to override"
+    # Test if host is DSM 6 or later, exit otherwise
+    if [ "${dsm_major_version}" -lt "${DSM_SUPPORTED_VERSION}" ] ; then
+        terminate "This script supports DSM 6.x or later only, use --force to override"
     fi
 
     # Test Docker version is present, exit otherwise
