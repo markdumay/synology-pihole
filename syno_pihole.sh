@@ -4,8 +4,8 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : September 12th, 2021
-# Version       : 1.0.2
+# Date          : September 17th, 2021
+# Version       : 1.1.0
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -20,7 +20,8 @@ NC='\033[0m' # No Color
 BOLD='\033[1m' #Bold color
 
 DSM_SUPPORTED_VERSION=6
-SYNO_DOCKER_SERV_NAME=pkgctl-Docker
+SYNO_DOCKER_SERV_NAME6=pkgctl-Docker
+SYNO_DOCKER_SERV_NAME7=Docker
 DEFAULT_PIHOLE_VERSION='2021.09'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
@@ -649,11 +650,6 @@ validate_settings() {
 #   Exits with a non-zero exit code if the DSM version is not supported, or if the Docker binaries cannot be found.
 #======================================================================================================================
 validate_host_version() {
-    # Test if host is DSM 6 or later, exit otherwise
-    if [ "${dsm_major_version}" -lt "${DSM_SUPPORTED_VERSION}" ] ; then
-        terminate "This script supports DSM 6.x or later only, use --force to override"
-    fi
-
     # Test Docker version is present, exit otherwise
     if [ -z "${docker_version}" ] ; then
         terminate "Could not confirm Docker availability, use --force to override"
@@ -671,6 +667,24 @@ validate_host_version() {
 #=======================================================================================================================
 
 #======================================================================================================================
+# Detects the current version of DSM.
+#======================================================================================================================
+# Globals:
+#   - dsm_major_version
+#======================================================================================================================
+detect_dsm_version() {
+    dsm_version='Unknown'
+    file='/etc.defaults/VERSION'
+    [ -f "${file}" ] && dsm_version=$(grep '^productversion' < "${file}"  | cut -d'=' -f2 | sed "s/\"//g") && \
+        dsm_major_version=$(grep '^majorversion' < "${file}"  | cut -d'=' -f2 | sed "s/\"//g")
+
+    # Test if host is DSM 6 or later, exit otherwise
+    if [ "${dsm_major_version}" -lt "${DSM_SUPPORTED_VERSION}" ] ; then
+        terminate "This script supports DSM 6.x or later only, use --force to override"
+    fi
+}
+
+#======================================================================================================================
 # Detects the current versions for DSM, Docker, Docker Compose. It validates compatibility too, unless in force mode.
 #======================================================================================================================
 # Globals:
@@ -683,12 +697,6 @@ validate_host_version() {
 #======================================================================================================================
 detect_host_versions() {
     print_status "Validating DSM, Docker, and Docker Compose versions on host"
-
-    # Detect current DSM version
-    dsm_version='Unknown'
-    file='/etc.defaults/VERSION'
-    [ -f "${file}" ] && dsm_version=$(grep '^productversion' < "${file}"  | cut -d'=' -f2 | sed "s/\"//g") && \
-        dsm_major_version=$(grep '^majorversion' < "${file}"  | cut -d'=' -f2 | sed "s/\"//g")
 
     # Detect current Docker version
     docker_version=$(docker -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
@@ -864,7 +872,7 @@ create_docker_compose_file() {
 }
 
 #======================================================================================================================
-# Invokes synoservicectl to test the availability of the Docker daemon.
+# Invokes synoservicectl (DSM 6) or synopkg (DSM 7) to test the availability of the Docker daemon.
 #======================================================================================================================
 # Globals:
 #   - log_prefix
@@ -882,16 +890,33 @@ execute_wait_for_docker() {
     [ -z "${log_prefix}" ] && printf 'Testing...  '
 
     while [ "${elapsed}" -le "${NW_TIMEOUT}" ] ; do
-        # validate Docker service is running
-        if synoservicectl --status "${SYNO_DOCKER_SERV_NAME}" | grep -q 'running'; then
-            docker='true'
-            break
-        else
-            i=$(((i + 1) % 4))
-            spinner=$(echo '/-\|' | cut -c "$((i + 1))")
-            [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
-            sleep 0.5
-        fi
+        case "${dsm_major_version}" in
+            "6")
+                # validate Docker service is running
+                if synoservicectl --status "${SYNO_DOCKER_SERV_NAME6}" | grep -q 'running'; then
+                    docker='true'
+                    break
+                else
+                    i=$(((i + 1) % 4))
+                    spinner=$(echo '/-\|' | cut -c "$((i + 1))")
+                    [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
+                    sleep 0.5
+                fi
+                ;;
+            "7")
+                # validate Docker service is running
+                if synopkg status "${SYNO_DOCKER_SERV_NAME7}" | grep -q 'started'; then
+                    docker='true'
+                    break
+                else
+                    i=$(((i + 1) % 4))
+                    spinner=$(echo '/-\|' | cut -c "$((i + 1))")
+                    [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
+                    sleep 0.5
+                fi
+                ;;
+        esac
+
         current=$(date +%s)
         elapsed=$((current - start))
     done
@@ -1212,6 +1237,7 @@ main() {
         install )
             total_steps=8
             init_env
+            detect_dsm_version
             detect_host_versions
             define_pihole_versions
             init_settings
@@ -1225,6 +1251,7 @@ main() {
         network )
             total_steps=5
             init_env
+            detect_dsm_version
             execute_wait_for_docker
             detect_host_versions
             execute_wait_for_network
@@ -1234,6 +1261,7 @@ main() {
             ;;
         update )
             total_steps=4
+            detect_dsm_version
             detect_host_versions
             define_pihole_versions
             execute_create_container
