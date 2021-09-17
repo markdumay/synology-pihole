@@ -50,7 +50,7 @@ The project uses the following core software components:
 * [Pi-hole][pihole_url] - DNS sinkhole to block unwanted content
 
 ## Prerequisites
-*Synology-pihole* runs on a Synology NAS with DSM 6. The script has been tested with a DS918+ running `DSM 6.2.3-25426 Update 2`. Other prerequisites are:
+*Synology-pihole* runs on a Synology NAS with DSM 6 or later. The script has been tested with a DS918+ running `DSM 7.0-41890`. Other prerequisites are:
 
 * **SSH admin access is required** - *synology-pihole* runs as a shell script on the terminal. You can enable SSH access in DSM under `Control Panel ➡ Terminal & SNMP ➡ Terminal`.
 

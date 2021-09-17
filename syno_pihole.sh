@@ -4,8 +4,8 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : February 19th, 2021
-# Version       : 1.0.0
+# Date          : September 12th, 2021
+# Version       : 1.0.2
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -21,7 +21,7 @@ BOLD='\033[1m' #Bold color
 
 DSM_SUPPORTED_VERSION=6
 SYNO_DOCKER_SERV_NAME=pkgctl-Docker
-DEFAULT_PIHOLE_VERSION='5.7'
+DEFAULT_PIHOLE_VERSION='2021.09'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
 GITHUB_API_PIHOLE='https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest'
@@ -350,7 +350,7 @@ is_cidr_in_subnet() {
 #======================================================================================================================
 detect_available_versions() {
     if [ -z "${target_pihole_version}" ] ; then
-        target_pihole_version=$(curl -s "${GITHUB_API_PIHOLE}" | grep "tag_name" | grep -Eo "v[0-9]+.[0-9]+(.[0-9]+)?")
+        target_pihole_version=$(curl -s "${GITHUB_API_PIHOLE}" | grep "tag_name" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
         target_pihole_version=$(echo "${target_pihole_version}" | sed 's/v//g')
 
         if [ -z "${target_pihole_version}" ] ; then
@@ -649,9 +649,9 @@ validate_settings() {
 #   Exits with a non-zero exit code if the DSM version is not supported, or if the Docker binaries cannot be found.
 #======================================================================================================================
 validate_host_version() {
-    # Test if host is DSM 6, exit otherwise
-    if [ "${dsm_major_version}" != "${DSM_SUPPORTED_VERSION}" ] ; then
-        terminate "This script supports DSM 6.x only, use --force to override"
+    # Test if host is DSM 6 or later, exit otherwise
+    if [ "${dsm_major_version}" -lt "${DSM_SUPPORTED_VERSION}" ] ; then
+        terminate "This script supports DSM 6.x or later only, use --force to override"
     fi
 
     # Test Docker version is present, exit otherwise
