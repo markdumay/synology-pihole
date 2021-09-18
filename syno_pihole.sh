@@ -1261,6 +1261,7 @@ main() {
             ;;
         update )
             total_steps=4
+            init_env
             detect_dsm_version
             detect_host_versions
             define_pihole_versions
