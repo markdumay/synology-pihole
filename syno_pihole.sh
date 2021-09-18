@@ -727,10 +727,8 @@ detect_host_versions() {
 define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
-    # Detect current Pi-hole version (should comply with 'version.release.modification')
-    # Repository has stated FTL is the leading developement release version listed as latest.
-    pihole_version=$(docker exec "${param_pihole_hostname}" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
-        | cut -c2-)
+    # Detect current Docker Pi-hole version (PIHOLE_TAG should comply with 'year.month[.revision]')
+    pihole_version=$(docker inspect "${param_pihole_hostname}" | grep PIHOLE_TAG | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
     is_valid_version "${pihole_version}" || pihole_version=''
 
     log "Current Pi-hole:           ${pihole_version:-Unavailable}"
