@@ -409,6 +409,7 @@ init_env() {
     [ -z "${param_gateway}" ] && param_gateway="${GATEWAY}"
     [ -z "${param_ip_range}" ] && param_ip_range="${IP_RANGE}"
     [ -z "${param_host_ip}" ] && param_host_ip="${HOST_IP}"
+    #shellcheck disable=SC2153
     [ -z "${param_interface}" ] && param_interface="${INTERFACE}"
     [ -z "${param_mac_address}" ] && param_mac_address="${MAC_ADDRESS}"
     [ -z "${param_timezone}" ] && param_timezone="${TIMEZONE}"
