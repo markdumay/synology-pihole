@@ -737,8 +737,8 @@ define_pihole_versions() {
 
     log "Target Pi-hole version:    ${target_pihole_version:-Unknown}"
 
-    if [ "${force}" != 'true' ] ; then
-        # Confirm update is necessary
+    # Confirm update is necessary
+    if [ "${force}" != 'true' ] && [ "${command}" != 'version' ] ; then
         if [ "${pihole_version}" = "${target_pihole_version}" ] ; then
             terminate "Already on latest version of Pi-hole"
         fi
