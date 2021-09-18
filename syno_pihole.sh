@@ -715,7 +715,8 @@ detect_host_versions() {
 
 #======================================================================================================================
 # Defines the current and target version of Pi-hole. Exits if the installed version is already the latest version
-# available, unless in force mode. The FTL release is considered as the leading release.
+# available, unless in force mode. The PIHOLE_TAG of the Docker container contains the version information.
+# See https://github.com/pi-hole/docker-pi-hole/releases/tag/2021.09 for more details about the version management.
 #======================================================================================================================
 # Globals:
 #   - pihole_version
