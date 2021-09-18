@@ -98,6 +98,7 @@ usage() {
     echo "  network (-i|--ip) <address> [PARAMETERS]   Create or recreate virtual network."
     echo "  update                                     Update Pi-hole to latest version using "
     echo "                                             existing settings."
+    echo "  version                                    Show host and Pi-hole versions. "
     echo
     echo "Parameters:"
     echo "  -d, --domain           Container fully qualified domain name."
@@ -1222,7 +1223,7 @@ main() {
                 shift
                 param_host_ip="$1"
                 ;;
-            install | network | update  )
+            install | network | update | version )
                 command="$1"
                 ;;
             * )
@@ -1267,6 +1268,13 @@ main() {
             define_pihole_versions
             execute_create_container
             execute_test_pihole
+            ;;
+        version )
+            total_steps=2
+            init_env
+            detect_dsm_version
+            detect_host_versions
+            define_pihole_versions
             ;;
         * )
             usage
