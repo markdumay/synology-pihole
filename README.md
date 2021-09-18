@@ -100,6 +100,7 @@ sudo ./syno_pihole.sh update
 | **`install`**  | Installs Pi-hole as Docker container |
 | **`network`**  | Creates or recreates virtual network |
 | **`update`**   | Updates an existing Pi-hole Docker container |
+| **`version`**  | Shows host and Pi-hole versions |
 
 In addition, the following options are available.
 
