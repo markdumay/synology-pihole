@@ -4,8 +4,8 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : September 17th, 2021
-# Version       : 1.1.0
+# Date          : September 18th, 2021
+# Version       : 1.2.0
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -98,6 +98,7 @@ usage() {
     echo "  network (-i|--ip) <address> [PARAMETERS]   Create or recreate virtual network."
     echo "  update                                     Update Pi-hole to latest version using "
     echo "                                             existing settings."
+    echo "  version                                    Show host and Pi-hole versions. "
     echo
     echo "Parameters:"
     echo "  -d, --domain           Container fully qualified domain name."
@@ -408,6 +409,7 @@ init_env() {
     [ -z "${param_gateway}" ] && param_gateway="${GATEWAY}"
     [ -z "${param_ip_range}" ] && param_ip_range="${IP_RANGE}"
     [ -z "${param_host_ip}" ] && param_host_ip="${HOST_IP}"
+    #shellcheck disable=SC2153
     [ -z "${param_interface}" ] && param_interface="${INTERFACE}"
     [ -z "${param_mac_address}" ] && param_mac_address="${MAC_ADDRESS}"
     [ -z "${param_timezone}" ] && param_timezone="${TIMEZONE}"
@@ -714,7 +716,8 @@ detect_host_versions() {
 
 #======================================================================================================================
 # Defines the current and target version of Pi-hole. Exits if the installed version is already the latest version
-# available, unless in force mode. The FTL release is considered as the leading release.
+# available, unless in force mode. The PIHOLE_TAG of the Docker container contains the version information.
+# See https://github.com/pi-hole/docker-pi-hole/releases/tag/2021.09 for more details about the version management.
 #======================================================================================================================
 # Globals:
 #   - pihole_version
@@ -726,10 +729,8 @@ detect_host_versions() {
 define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
-    # Detect current Pi-hole version (should comply with 'version.release.modification')
-    # Repository has stated FTL is the leading developement release version listed as latest.
-    pihole_version=$(docker exec "${param_pihole_hostname}" pihole -v 2>/dev/null | grep 'FTL' | awk '{print $4}' \
-        | cut -c2-)
+    # Detect current Docker Pi-hole version (PIHOLE_TAG should comply with 'year.month[.revision]')
+    pihole_version=$(docker inspect "${param_pihole_hostname}" | grep PIHOLE_TAG | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
     is_valid_version "${pihole_version}" || pihole_version=''
 
     log "Current Pi-hole:           ${pihole_version:-Unavailable}"
@@ -738,8 +739,8 @@ define_pihole_versions() {
 
     log "Target Pi-hole version:    ${target_pihole_version:-Unknown}"
 
-    if [ "${force}" != 'true' ] ; then
-        # Confirm update is necessary
+    # Confirm update is necessary
+    if [ "${force}" != 'true' ] && [ "${command}" != 'version' ] ; then
         if [ "${pihole_version}" = "${target_pihole_version}" ] ; then
             terminate "Already on latest version of Pi-hole"
         fi
@@ -1222,7 +1223,7 @@ main() {
                 shift
                 param_host_ip="$1"
                 ;;
-            install | network | update  )
+            install | network | update | version )
                 command="$1"
                 ;;
             * )
@@ -1261,11 +1262,19 @@ main() {
             ;;
         update )
             total_steps=4
+            init_env
             detect_dsm_version
             detect_host_versions
             define_pihole_versions
             execute_create_container
             execute_test_pihole
+            ;;
+        version )
+            total_steps=2
+            init_env
+            detect_dsm_version
+            detect_host_versions
+            define_pihole_versions
             ;;
         * )
             usage
