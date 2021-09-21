@@ -136,9 +136,9 @@ It is recommended to schedule a task to ensure Pi-hole uses the latest  version 
 1. Access `Task Scheduler` via `Control Panel ➡ Task Scheduler` in DSM. 
 2. Now click on `Create ➡ Scheduled Task ➡ User-defined script` to create a custom script. Give the task a familiar name in the tab `General`, such as `Update Pi-hole container`, and select `root` as user. 
 3. Schedule the task in the tab `Schedule`, for example running it at 00:00 daily. 
-4. Finally, enter the following script in the user-defined script section of the `Task Settings` tab. Be sure to update `/path/to/your/script/`. The optional instruction `-l /var/log/syno_pihole.log` copies all messages to a log file.
+4. Finally, enter the following script in the user-defined script section of the `Task Settings` tab. Be sure to update `/path/to/your/script/`. The optional instruction `--log /var/log/syno_pihole.log` copies all messages to a log file.
     ```console
-    /bin/sh /path/to/your/script/syno_pihole.sh update -l /var/log/syno_pihole.log
+    /bin/sh /path/to/your/script/syno_pihole.sh update --ip 192.168.0.250 --log /var/log/syno_pihole.log
     ```
 
 #### Ensuring the Host <-> Container Bridge Interface is Available After Reboot
@@ -146,7 +146,7 @@ By default, Docker containers are automatically restarted after a system reboot.
 1. Access `Task Scheduler` via `Control Panel ➡ Task Scheduler` in DSM. 
 2. Now click on `Create ➡ Triggered Task ➡ User-defined script` to create a custom script. Give the task a familiar name in the tab `General`, such as `Recreate Pi-hole Bridge Interface`.
 3. In the same screen, select `root` as user and `Boot-up` as event.
-4. Finally, enter the following script in the user-defined script section of the `Task Settings` tab. Be sure to update `/path/to/your/script/`. The optional instruction `-l /var/log/syno_pihole.log` copies all messages to a log file. The option `--force` is required to avoid the script asking for user confirmation.
+4. Finally, enter the following script in the user-defined script section of the `Task Settings` tab. Be sure to update `/path/to/your/script/`. The optional instruction `--log /var/log/syno_pihole.log` copies all messages to a log file. The option `--force` is required to avoid the script asking for user confirmation.
     ```console
     /bin/sh /path/to/your/script/syno_pihole.sh network --ip 192.168.0.250 --log /var/log/syno_pihole.log --force
     ```
