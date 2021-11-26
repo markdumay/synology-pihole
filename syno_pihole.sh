@@ -705,6 +705,9 @@ detect_host_versions() {
 
     # Detect current Docker Compose version
     compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "v[0-9]+.[0-9]*.[0-9]*" | cut -c 2-)
+    if [ -z "${compose_version}" ] ; then
+        compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
+    fi
 
     log "Current DSM:               ${dsm_version:-Unknown}"
     log "Current Docker:            ${docker_version:-Unknown}"
