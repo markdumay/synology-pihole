@@ -4,8 +4,8 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : September 18th, 2021
-# Version       : 1.2.0
+# Date          : November 26th, 2021
+# Version       : 1.2.1
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -704,7 +704,10 @@ detect_host_versions() {
     docker_version=$(docker -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
 
     # Detect current Docker Compose version
-    compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
+    compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "v[0-9]+.[0-9]*.[0-9]*" | cut -c 2-)
+    if [ -z "${compose_version}" ] ; then
+        compose_version=$(docker-compose -v 2>/dev/null | grep -Eo "[0-9]*.[0-9]*.[0-9]*," | cut -d',' -f 1)
+    fi
 
     log "Current DSM:               ${dsm_version:-Unknown}"
     log "Current Docker:            ${docker_version:-Unknown}"
