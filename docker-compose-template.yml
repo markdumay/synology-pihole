@@ -24,6 +24,7 @@ services:
             - 443:443/tcp
         environment:
             DNSMASQ_LISTENING: all
+            DNSMASQ_USER: root
             TZ: ${TIMEZONE}
             WEBPASSWORD: ${WEBPASSWORD}
             VIRTUAL_HOST: ${DOMAIN_NAME}
