@@ -4,8 +4,8 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : November 26th, 2021
-# Version       : 1.2.1
+# Date          : January 13th, 2022
+# Version       : 1.2.2
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -721,6 +721,7 @@ detect_host_versions() {
 # Defines the current and target version of Pi-hole. Exits if the installed version is already the latest version
 # available, unless in force mode. The PIHOLE_TAG of the Docker container contains the version information.
 # See https://github.com/pi-hole/docker-pi-hole/releases/tag/2021.09 for more details about the version management.
+# However, newer versions use PIHOLE_DOCKER_TAG. Either naming convention is accepted.
 #======================================================================================================================
 # Globals:
 #   - pihole_version
@@ -733,7 +734,7 @@ define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
     # Detect current Docker Pi-hole version (PIHOLE_TAG should comply with 'year.month[.revision]')
-    pihole_version=$(docker inspect "${param_pihole_hostname}" | grep PIHOLE_TAG | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
+    pihole_version=$(docker inspect "${param_pihole_hostname}" | grep -E "PIHOLE_(DOCKER_)?TAG" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
     is_valid_version "${pihole_version}" || pihole_version=''
 
     log "Current Pi-hole:           ${pihole_version:-Unavailable}"
