@@ -734,7 +734,8 @@ define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
     # Detect current Docker Pi-hole version (PIHOLE_TAG or PIHOLE_DOCKER_TAG  should comply with 'year.month[.revision]')
-    pihole_version=$(docker inspect "${param_pihole_hostname}" | grep "PIHOLE[A-Z_]*TAG" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
+    pihole_version=$(docker inspect -f '{{range $index, $value := .Config.Env}}{{println $value}}{{end}}' \
+        "${param_pihole_hostname}" | grep "PIHOLE[A-Z_]*TAG" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
     is_valid_version "${pihole_version}" || pihole_version=''
 
     log "Current Pi-hole:           ${pihole_version:-Unavailable}"
