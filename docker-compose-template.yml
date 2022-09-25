@@ -11,7 +11,7 @@ networks:
                 - subnet: ${SUBNET}
                   gateway: ${GATEWAY}
                   ip_range: ${IP_RANGE}
-  
+
 services:
     pihole:
         container_name: ${PIHOLE_HOSTNAME}
@@ -44,6 +44,6 @@ services:
         mac_address: ${MAC_ADDRESS}
         hostname: ${PIHOLE_HOSTNAME}
         domainname: ${DOMAIN_NAME}
-        dns: 
+        dns:
             - 127.0.0.1
             - ${DNS1}
