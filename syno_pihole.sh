@@ -4,8 +4,8 @@
 # Title         : syno_pihole.sh
 # Description   : Install or Update Pi-Hole as Docker Container on a Synology NAS with a Static IP Address
 # Author        : Mark Dumay
-# Date          : January 13th, 2022
-# Version       : 1.2.2
+# Date          : September 25th, 2022
+# Version       : 1.2.3
 # Usage         : sudo ./syno_pihole.sh [OPTIONS] command
 # Repository    : https://github.com/markdumay/synology-pihole.git
 # License       : MIT - https://github.com/markdumay/synology-pihole/blob/master/LICENSE
@@ -22,7 +22,7 @@ BOLD='\033[1m' #Bold color
 DSM_SUPPORTED_VERSION=6
 SYNO_DOCKER_SERV_NAME6=pkgctl-Docker
 SYNO_DOCKER_SERV_NAME7=Docker
-DEFAULT_PIHOLE_VERSION='2021.09'
+DEFAULT_PIHOLE_VERSION='2022.09.4'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
 GITHUB_API_PIHOLE='https://api.github.com/repos/pi-hole/docker-pi-hole/releases/latest'
@@ -719,7 +719,8 @@ detect_host_versions() {
 
 #======================================================================================================================
 # Defines the current and target version of Pi-hole. Exits if the installed version is already the latest version
-# available, unless in force mode. The PIHOLE_TAG of the Docker container contains the version information.
+# available, unless in force mode. The PIHOLE_TAG or PIHOLE_DOCKER_TAG of the Docker container contains the version
+# information.
 # See https://github.com/pi-hole/docker-pi-hole/releases/tag/2021.09 for more details about the version management.
 # However, newer versions use PIHOLE_DOCKER_TAG. Either naming convention is accepted.
 #======================================================================================================================
@@ -733,8 +734,9 @@ detect_host_versions() {
 define_pihole_versions() {
     print_status "Detecting current and available Pi-hole versions"
 
-    # Detect current Docker Pi-hole version (PIHOLE_TAG should comply with 'year.month[.revision]')
-    pihole_version=$(docker inspect "${param_pihole_hostname}" | grep -E "PIHOLE_(DOCKER_)?TAG" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
+    # Detect current Docker Pi-hole version (PIHOLE_TAG or PIHOLE_DOCKER_TAG  should comply with 'year.month[.revision]')
+    pihole_version=$(docker inspect -f '{{range $index, $value := .Config.Env}}{{println $value}}{{end}}' \
+        "${param_pihole_hostname}" | grep -E "PIHOLE_(DOCKER_)?TAG" | grep -Eo "[0-9]+.[0-9]+(.[0-9]+)?")
     is_valid_version "${pihole_version}" || pihole_version=''
 
     log "Current Pi-hole:           ${pihole_version:-Unavailable}"
