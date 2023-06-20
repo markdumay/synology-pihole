@@ -22,6 +22,7 @@ BOLD='\033[1m' #Bold color
 DSM_SUPPORTED_VERSION=6
 SYNO_DOCKER_SERV_NAME6=pkgctl-Docker
 SYNO_DOCKER_SERV_NAME7=Docker
+SYNO_DOCKER_SERV_NAME7_2=ContainerManager
 DEFAULT_PIHOLE_VERSION='2022.09.4'
 COMPOSE_FILE='docker-compose.yml'
 TEMPLATE_FILE='docker-compose-template.yml'
@@ -893,36 +894,41 @@ execute_wait_for_docker() {
     i=0
     start=$(date +%s)
     elapsed=0
+	
+	# set docker service name
+	syno_docker_serv_name=""
+	is_started='running'
+	synopkg_cmd='synopkg status'
+	case "${dsm_major_version}" in
+		"6")
+			syno_docker_serv_name="${SYNO_DOCKER_SERV_NAME6}"
+			synopkg_name='synoservicectl --status'
+			;;
+		"7")
+			case "${dsm_version}" in
+				"7.0" | "7.1")
+					syno_docker_serv_name="${SYNO_DOCKER_SERV_NAME7}"
+					is_started='started';;
+				*)
+					syno_docker_serv_name="${SYNO_DOCKER_SERV_NAME7_2}"
+					;;
+			esac
+			;;
+	esac
 
     [ -z "${log_prefix}" ] && printf 'Testing...  '
 
     while [ "${elapsed}" -le "${NW_TIMEOUT}" ] ; do
-        case "${dsm_major_version}" in
-            "6")
-                # validate Docker service is running
-                if synoservicectl --status "${SYNO_DOCKER_SERV_NAME6}" | grep -q 'running'; then
-                    docker='true'
-                    break
-                else
-                    i=$(((i + 1) % 4))
-                    spinner=$(echo '/-\|' | cut -c "$((i + 1))")
-                    [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
+		# validate Docker service is running
+		if $(${synopkg_cmd} "${syno_docker_serv_name}" | grep -q "${is_started}"); then
+			docker='true'
+			break
+        else
+            i=$(((i + 1) % 4))
+            spinner=$(echo '/-\|' | cut -c "$((i + 1))")
+            [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
                     sleep 0.5
-                fi
-                ;;
-            "7")
-                # validate Docker service is running
-                if synopkg status "${SYNO_DOCKER_SERV_NAME7}" | grep -q 'started'; then
-                    docker='true'
-                    break
-                else
-                    i=$(((i + 1) % 4))
-                    spinner=$(echo '/-\|' | cut -c "$((i + 1))")
-                    [ -z "${log_prefix}" ] && printf "\b%s" "${spinner}"  # print spinner
-                    sleep 0.5
-                fi
-                ;;
-        esac
+        fi
 
         current=$(date +%s)
         elapsed=$((current - start))
